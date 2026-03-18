@@ -143,7 +143,7 @@ src/lotse/
 - [x] Plugin system (pluggy)
 - [x] Filesystem watcher
 - [ ] REST API inlet (FastAPI)
-- [ ] Semantic search (FastEmbed embeddings)
+- [x] Semantic search (FastEmbed + sqlite-vec hybrid search with RRF)
 - [ ] Web dashboard
 - [ ] Browser extension
 - [ ] Email inlet

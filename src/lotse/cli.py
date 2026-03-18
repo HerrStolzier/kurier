@@ -87,21 +87,35 @@ def watch(
 
 @app.command()
 def search(
-    query: str = typer.Argument(..., help="Search query"),
+    query: str = typer.Argument(..., help="Search query (natural language)"),
     limit: int = typer.Option(20, "--limit", "-n"),
+    mode: str = typer.Option(
+        "auto", "--mode", "-m",
+        help="Search mode: 'auto' (hybrid), 'fts' (keyword), 'vec' (semantic)",
+    ),
     config: Path | None = typer.Option(None, "--config", "-c"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
 ) -> None:
-    """Search processed items using full-text search."""
+    """Search processed items. Uses hybrid keyword + semantic search by default."""
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+
     cfg = _get_config(config)
 
-    from lotse.db.store import Store
+    from lotse.core.engine import Engine
 
-    store = Store(cfg.database.path)
-    results = store.search(query, limit=limit)
+    engine = Engine(cfg)
+    results = engine.search(query, limit=limit, mode=mode)
 
     if not results:
         console.print("[dim]No results found.[/dim]")
         return
+
+    # Show search mode info
+    if engine.store.vec_enabled and mode in ("auto", "vec"):
+        console.print("[dim]Search mode: hybrid (keyword + semantic)[/dim]\n")
+    else:
+        console.print("[dim]Search mode: keyword (FTS5)[/dim]\n")
 
     table = Table(title=f"Results for '{query}'")
     table.add_column("ID", style="dim")
@@ -138,7 +152,8 @@ def status(
     console.print(f"[dim]Database:[/dim] {cfg.database.path}")
     console.print(f"[dim]Inbox:[/dim]   {cfg.inbox_dir}")
     console.print(f"[dim]LLM:[/dim]     {cfg.llm.provider}/{cfg.llm.model}")
-    console.print(f"[dim]Routes:[/dim]  {len(cfg.routes)} configured\n")
+    console.print(f"[dim]Routes:[/dim]  {len(cfg.routes)} configured")
+    console.print(f"[dim]Embed:[/dim]   {cfg.embeddings.model}\n")
 
     if not cfg.database.path.exists():
         console.print("[dim]No items processed yet.[/dim]")
@@ -148,6 +163,17 @@ def status(
     s = store.stats()
 
     console.print(f"[bold]Total items:[/bold] {s['total_items']}\n")
+
+    if s.get("vec_enabled"):
+        console.print(
+            f"[dim]Semantic search:[/dim] [green]enabled[/green]"
+            f" ({s.get('embeddings', 0)} embeddings)\n"
+        )
+    else:
+        console.print(
+            "[dim]Semantic search:[/dim] [yellow]disabled[/yellow]"
+            " (pip install sqlite-vec)\n"
+        )
 
     if s["categories"]:
         cat_table = Table(title="Categories")

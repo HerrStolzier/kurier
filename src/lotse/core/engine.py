@@ -8,6 +8,7 @@ from pathlib import Path
 
 from lotse.core.classifier import Classifier
 from lotse.core.config import LotseConfig
+from lotse.core.embeddings import EmbeddingEngine
 from lotse.core.router import Router, RouteResult
 from lotse.db.store import Store
 from lotse.plugins.manager import PluginManager
@@ -24,6 +25,14 @@ class Engine:
         self.router = Router(config.routes, config.review_dir)
         self.store = Store(config.database.path)
         self.plugin_manager = PluginManager()
+        self._embedder: EmbeddingEngine | None = None
+
+    @property
+    def embedder(self) -> EmbeddingEngine:
+        """Lazy-load embedding engine (avoids slow model load if not needed)."""
+        if self._embedder is None:
+            self._embedder = EmbeddingEngine(self.config.embeddings)
+        return self._embedder
 
     def ingest_file(self, file_path: Path) -> RouteResult:
         """Process a single file through the pipeline."""
@@ -41,7 +50,9 @@ class Engine:
         content = self._extract_content(file_path)
 
         # Step 2: Let plugins pre-process
-        content = self.plugin_manager.hook.pre_classify(content=content, path=str(file_path))
+        content = self.plugin_manager.hook.pre_classify(
+            content=content, path=str(file_path)
+        )
         if isinstance(content, list):
             content = content[-1] if content else ""
 
@@ -62,7 +73,10 @@ class Engine:
         # Step 5: Route
         result = self.router.execute(file_path, classification)
 
-        # Step 6: Store in database
+        # Step 6: Generate embedding for semantic search
+        embedding = self._generate_embedding(content, classification)
+
+        # Step 7: Store in database
         self.store.record_item(
             original_path=str(file_path),
             destination=result.destination,
@@ -72,6 +86,8 @@ class Engine:
             tags=classification.tags,
             language=classification.language,
             route_name=result.route_name,
+            content_text=content[:2000],
+            embedding=embedding,
         )
 
         return result
@@ -79,6 +95,8 @@ class Engine:
     def ingest_text(self, text: str, name: str = "text_input") -> RouteResult:
         """Process raw text through the pipeline."""
         classification = self.classifier.classify(text)
+
+        embedding = self._generate_embedding(text, classification)
 
         self.store.record_item(
             original_path=f"text://{name}",
@@ -89,22 +107,57 @@ class Engine:
             tags=classification.tags,
             language=classification.language,
             route_name="__text__",
+            content_text=text[:2000],
+            embedding=embedding,
         )
 
         return RouteResult(
             route_name="__text__",
             destination="stored",
             success=True,
-            message=f"Text classified: {classification.category} ({classification.confidence:.2f})",
+            message=(
+                f"Text classified: {classification.category}"
+                f" ({classification.confidence:.2f})"
+            ),
         )
 
-    def search(self, query: str, limit: int = 20) -> list[dict]:
-        """Search stored items using full-text search."""
-        return self.store.search(query, limit=limit)
+    def search(
+        self, query: str, limit: int = 20, mode: str = "auto"
+    ) -> list[dict]:
+        """Search stored items. Supports keyword, semantic, and hybrid search."""
+        query_embedding = None
+        if mode in ("auto", "vec") and self.store.vec_enabled:
+            try:
+                query_embedding = self.embedder.embed_query(query)
+            except Exception as e:
+                logger.warning("Embedding query failed, falling back to FTS: %s", e)
+
+        return self.store.search(
+            query, limit=limit, query_embedding=query_embedding, mode=mode
+        )
 
     def stats(self) -> dict:
         """Get processing statistics."""
         return self.store.stats()
+
+    def _generate_embedding(self, content: str, classification) -> bytes | None:
+        """Generate an embedding combining content + classification metadata."""
+        if not self.store.vec_enabled:
+            return None
+
+        # Combine content with classification for richer embedding
+        embed_text = (
+            f"{classification.summary} "
+            f"{classification.category} "
+            f"{' '.join(classification.tags)} "
+            f"{content[:1500]}"
+        )
+
+        try:
+            return self.embedder.embed_text(embed_text)
+        except Exception as e:
+            logger.warning("Embedding generation failed: %s", e)
+            return None
 
     def _extract_content(self, file_path: Path) -> str:
         """Extract text content from a file."""
@@ -115,7 +168,10 @@ class Engine:
             return file_path.read_text(errors="replace")[:8000]
 
         # Common text-based formats without proper MIME
-        text_extensions = {".md", ".json", ".yaml", ".yml", ".toml", ".csv", ".tsv", ".log"}
+        text_extensions = {
+            ".md", ".json", ".yaml", ".yml", ".toml",
+            ".csv", ".tsv", ".log",
+        }
         if file_path.suffix.lower() in text_extensions:
             return file_path.read_text(errors="replace")[:8000]
 

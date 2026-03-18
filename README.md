@@ -86,6 +86,38 @@ Lotse supports any LLM provider via [LiteLLM](https://github.com/BerriAI/litellm
 | Anthropic | `provider = "anthropic"`, `model = "claude-sonnet-4-5-20250514"` |
 | HuggingFace | `provider = "huggingface"`, `model = "meta-llama/..."` |
 
+## REST API
+
+Start the API server for external integrations, webhooks, and mobile capture:
+
+```bash
+# Install API dependencies
+pip install lotse[api]
+
+# Start the server
+lotse serve
+# → http://127.0.0.1:8790/docs (Swagger UI)
+```
+
+**Endpoints:**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/health` | Health check |
+| `POST` | `/ingest/file` | Upload a file for classification |
+| `POST` | `/ingest/text` | Submit text for classification |
+| `GET` | `/search?q=...` | Hybrid keyword + semantic search |
+| `GET` | `/status` | Processing statistics |
+| `GET` | `/recent` | Recently processed items |
+
+```bash
+# Example: ingest a file via curl
+curl -X POST http://localhost:8790/ingest/file -F "file=@invoice.pdf"
+
+# Example: search
+curl "http://localhost:8790/search?q=Telefonkosten&mode=auto"
+```
+
 ## Plugins
 
 Lotse is built to be extended. Plugins can:
@@ -142,7 +174,7 @@ src/lotse/
 - [x] SQLite + FTS5 search
 - [x] Plugin system (pluggy)
 - [x] Filesystem watcher
-- [ ] REST API inlet (FastAPI)
+- [x] REST API inlet (FastAPI with auto-docs)
 - [x] Semantic search (FastEmbed + sqlite-vec hybrid search with RRF)
 - [ ] Web dashboard
 - [ ] Browser extension

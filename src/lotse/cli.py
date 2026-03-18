@@ -239,6 +239,37 @@ confidence_threshold = 0.6
 
 
 @app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", "--host", "-h"),
+    port: int = typer.Option(8790, "--port", "-p"),
+    config: Path | None = typer.Option(None, "--config", "-c"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Start the REST API server (requires: pip install lotse[api])."""
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+
+    try:
+        import uvicorn
+    except ImportError:
+        console.print("[red]Missing dependency.[/red] Install with:")
+        console.print("  pip install lotse[api]")
+        raise typer.Exit(1) from None
+
+    cfg = _get_config(config)
+
+    from lotse.inlets.api import create_app
+
+    api = create_app(cfg)
+
+    console.print(f"\n[bold]Lotse API[/bold] v{__version__}")
+    console.print(f"[dim]Docs:[/dim]    http://{host}:{port}/docs")
+    console.print(f"[dim]Health:[/dim]  http://{host}:{port}/health\n")
+
+    uvicorn.run(api, host=host, port=port, log_level="info")
+
+
+@app.command()
 def plugins() -> None:
     """List installed plugins."""
     from lotse.plugins.manager import PluginManager

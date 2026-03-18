@@ -1,0 +1,84 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lotse"
+version = "0.1.0"
+description = "Universal capture → classify → route platform. Your AI-powered data pilot."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [
+    { name = "HerrStolzier" },
+]
+keywords = ["ai", "classification", "routing", "automation", "local-first", "llm", "document-management"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business",
+    "Topic :: System :: Archiving",
+    "Topic :: Utilities",
+]
+
+dependencies = [
+    "typer>=0.15.0",
+    "rich>=13.0",
+    "pluggy>=1.5.0",
+    "litellm>=1.60.0",
+    "fastembed>=0.5.0",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.0.0",
+    "watchdog>=6.0.0",
+
+]
+
+[project.optional-dependencies]
+api = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=6.0",
+    "pytest-asyncio>=0.25.0",
+    "ruff>=0.9.0",
+    "mypy>=1.14.0",
+    "pre-commit>=4.0.0",
+]
+
+[project.scripts]
+lotse = "lotse.cli:app"
+
+[project.entry-points."lotse.plugins"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lotse"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "RUF"]
+ignore = ["B008"]  # typer.Argument/Option in defaults is the standard pattern
+
+[tool.ruff.lint.isort]
+known-first-party = ["lotse"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"

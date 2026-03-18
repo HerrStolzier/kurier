@@ -1,0 +1,173 @@
+# Lotse
+
+**Universal capture → classify → route. Your AI-powered data pilot.**
+
+Lotse takes any digital input — files, URLs, text — classifies it using AI, and routes it to the right destination. Think of it as an intelligent mail sorting facility for your digital life.
+
+```
+              ┌─────────┐
+  File ──────►│         │──► Archiv/Rechnungen
+  URL  ──────►│  LOTSE  │──► Leseliste/Artikel
+  Text ──────►│         │──► Code/Snippets
+  Mail ──────►│ classify │──► Review (unsicher)
+              │  route   │──► Plugin: Webhook
+              └─────────┘──► Plugin: Custom
+```
+
+## Features
+
+- **Universal Intake** — Drop any file, paste text, pipe from stdin
+- **AI Classification** — LLM-powered content understanding (Ollama, OpenAI, Anthropic, HuggingFace)
+- **Smart Routing** — Category-based rules route items to folders, webhooks, or custom destinations
+- **Full-Text Search** — SQLite FTS5 search across all processed items
+- **Plugin System** — Extend with pip-installable plugins (powered by pluggy)
+- **Local-First** — Your data stays on your machine. No cloud required.
+- **Filesystem Watcher** — Auto-process files dropped into your inbox directory
+
+## Quick Start
+
+```bash
+# Install
+pip install lotse
+
+# Initialize config
+lotse init
+
+# Make sure Ollama is running with a model
+ollama pull mistral
+
+# Classify and route a file
+lotse add invoice.pdf
+
+# Watch inbox for new files
+lotse watch
+
+# Search your archive
+lotse search "Rechnung Telekom"
+
+# Check status
+lotse status
+```
+
+## Configuration
+
+Lotse uses a TOML config file at `~/.config/lotse/config.toml`:
+
+```toml
+[llm]
+provider = "ollama"
+model = "mistral"
+base_url = "http://localhost:11434"
+
+[embeddings]
+model = "BAAI/bge-small-en-v1.5"
+
+[routes.archiv]
+type = "folder"
+path = "~/Documents/Lotse/Archiv"
+categories = ["rechnung", "vertrag", "brief"]
+confidence_threshold = 0.7
+
+[routes.artikel]
+type = "folder"
+path = "~/Documents/Lotse/Artikel"
+categories = ["artikel", "paper", "tutorial"]
+confidence_threshold = 0.6
+```
+
+## LLM Providers
+
+Lotse supports any LLM provider via [LiteLLM](https://github.com/BerriAI/litellm):
+
+| Provider | Config |
+|----------|--------|
+| Ollama (local) | `provider = "ollama"`, `model = "mistral"` |
+| OpenAI | `provider = "openai"`, `model = "gpt-4o-mini"` |
+| Anthropic | `provider = "anthropic"`, `model = "claude-sonnet-4-5-20250514"` |
+| HuggingFace | `provider = "huggingface"`, `model = "meta-llama/..."` |
+
+## Plugins
+
+Lotse is built to be extended. Plugins can:
+
+- **Pre-process** content before classification
+- **Post-process** classification results
+- **Add custom routes** (Slack, Notion, webhooks, ...)
+- **React to routing events** (notifications, logging, ...)
+
+### Writing a Plugin
+
+```python
+# my_lotse_plugin.py
+from lotse.plugins.spec import hookimpl
+
+@hookimpl
+def on_routed(path: str, destination: str, route_name: str) -> None:
+    """Send a notification when a file is routed."""
+    print(f"Routed {path} → {destination}")
+```
+
+```toml
+# pyproject.toml
+[project.entry-points."lotse.plugins"]
+my-plugin = "my_lotse_plugin"
+```
+
+See the [Plugin Guide](docs/plugins.md) for details.
+
+## Architecture
+
+```
+src/lotse/
+├── cli.py              # Typer CLI interface
+├── core/
+│   ├── config.py       # TOML configuration
+│   ├── classifier.py   # LLM classification engine
+│   ├── router.py       # Route matching & execution
+│   └── engine.py       # Main pipeline orchestrator
+├── db/
+│   └── store.py        # SQLite + FTS5 storage
+├── inlets/
+│   └── watch.py        # Filesystem watcher
+├── plugins/
+│   ├── spec.py         # Plugin hook specifications
+│   └── manager.py      # Plugin discovery (pluggy)
+└── routes/             # Built-in route handlers
+```
+
+## Roadmap
+
+- [x] Core pipeline: capture → classify → route
+- [x] CLI interface
+- [x] SQLite + FTS5 search
+- [x] Plugin system (pluggy)
+- [x] Filesystem watcher
+- [ ] REST API inlet (FastAPI)
+- [ ] Semantic search (FastEmbed embeddings)
+- [ ] Web dashboard
+- [ ] Browser extension
+- [ ] Email inlet
+- [ ] Webhook routes
+- [ ] OCR support (Tesseract)
+
+## Development
+
+```bash
+# Clone
+git clone https://github.com/HerrStolzier/lotse.git
+cd lotse
+
+# Install in development mode
+pip install -e ".[dev]"
+
+# Run tests
+pytest
+
+# Lint
+ruff check src/
+mypy src/
+```
+
+## License
+
+MIT — see [LICENSE](LICENSE).

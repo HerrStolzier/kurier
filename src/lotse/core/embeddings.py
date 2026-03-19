@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import struct
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from fastembed import TextEmbedding as TextEmbeddingType
@@ -22,7 +22,7 @@ class EmbeddingEngine:
 
     def __init__(self, config: EmbeddingConfig) -> None:
         self.config = config
-        self._model: Optional[TextEmbeddingType] = None
+        self._model: TextEmbeddingType | None = None
 
     @property
     def model(self) -> TextEmbeddingType:

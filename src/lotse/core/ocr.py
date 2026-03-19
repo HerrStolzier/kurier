@@ -52,10 +52,10 @@ def _extract_from_pdf(file_path: Path, languages: str) -> str | None:
         logger.debug("pymupdf not installed, skipping PDF extraction")
         return None
 
-    doc = pymupdf.open(str(file_path))
+    doc: Any = pymupdf.open(str(file_path))
     pages_text = []
 
-    for page_num, page in enumerate(doc):
+    for page_num, page in enumerate(doc):  # type: ignore[arg-type]
         # Step 1: Try native text extraction (fast)
         text = page.get_text().strip()
 
@@ -73,7 +73,7 @@ def _extract_from_pdf(file_path: Path, languages: str) -> str | None:
         if text:
             pages_text.append(text)
 
-    doc.close()
+    doc.close()  # type: ignore[no-untyped-call]
     return "\n\n".join(pages_text) if pages_text else ""
 
 

@@ -55,6 +55,7 @@ def _extract_from_pdf(file_path: Path, languages: str) -> str | None:
     doc = pymupdf.open(str(file_path))  # type: ignore[no-untyped-call]
     pages_text: list[str] = []
 
+    page: Any
     for page_num, page in enumerate(doc):  # type: ignore[arg-type]
         # Step 1: Try native text extraction (fast)
         text: str = page.get_text().strip()

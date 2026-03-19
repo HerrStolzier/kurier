@@ -5,8 +5,9 @@ from __future__ import annotations
 import logging
 import mimetypes
 from pathlib import Path
+from typing import Any
 
-from lotse.core.classifier import Classifier
+from lotse.core.classifier import Classification, Classifier
 from lotse.core.config import LotseConfig
 from lotse.core.embeddings import EmbeddingEngine
 from lotse.core.router import Router, RouteResult
@@ -124,7 +125,7 @@ class Engine:
 
     def search(
         self, query: str, limit: int = 20, mode: str = "auto"
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Search stored items. Supports keyword, semantic, and hybrid search."""
         query_embedding = None
         if mode in ("auto", "vec") and self.store.vec_enabled:
@@ -137,11 +138,11 @@ class Engine:
             query, limit=limit, query_embedding=query_embedding, mode=mode
         )
 
-    def stats(self) -> dict:
+    def stats(self) -> dict[str, Any]:
         """Get processing statistics."""
         return self.store.stats()
 
-    def _generate_embedding(self, content: str, classification) -> bytes | None:
+    def _generate_embedding(self, content: str, classification: Classification) -> bytes | None:
         """Generate an embedding combining content + classification metadata."""
         if not self.store.vec_enabled:
             return None

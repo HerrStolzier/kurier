@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 import litellm
 from litellm import completion
@@ -46,7 +47,7 @@ class Classification:
     language: str
 
     @classmethod
-    def from_dict(cls, data: dict) -> Classification:
+    def from_dict(cls, data: dict[str, Any]) -> Classification:
         return cls(
             category=data.get("category", "unknown"),
             confidence=float(data.get("confidence", 0.0)),
@@ -93,7 +94,7 @@ class Classifier:
         truncated = content[:max_chars]
 
         try:
-            kwargs: dict = {
+            kwargs: dict[str, Any] = {
                 "model": self._model_id,
                 "messages": [
                     {"role": "user", "content": CLASSIFICATION_PROMPT.format(content=truncated)}

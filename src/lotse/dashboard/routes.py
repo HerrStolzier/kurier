@@ -6,6 +6,8 @@ import tempfile
 from pathlib import Path
 from typing import Annotated
 
+from typing import Any
+
 from fastapi import APIRouter, File, Query, UploadFile
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -24,7 +26,7 @@ router = APIRouter(prefix="/dashboard")
 _static_app = StaticFiles(directory=str(_static_dir))
 
 
-def _render(template_name: str, **context) -> HTMLResponse:
+def _render(template_name: str, **context: Any) -> HTMLResponse:
     """Render a Jinja2 template and return as HTML response."""
     template = _jinja.get_template(template_name)
     html = template.render(**context)
@@ -35,13 +37,13 @@ router.mount("/static", _static_app, name="dashboard-static")
 
 
 @router.get("/", response_class=HTMLResponse)
-async def dashboard_index():
+async def dashboard_index() -> HTMLResponse:
     """Main dashboard page."""
     return _render("dashboard.html", version=__version__)
 
 
 @router.get("/partials/stats", response_class=HTMLResponse)
-async def stats_partial():
+async def stats_partial() -> HTMLResponse:
     """Stats cards partial (loaded via HTMX)."""
     from lotse.inlets.api import _get_engine
 
@@ -53,7 +55,7 @@ async def stats_partial():
 @router.get("/partials/search", response_class=HTMLResponse)
 async def search_partial(
     q: Annotated[str, Query()] = "",
-):
+) -> HTMLResponse:
     """Search results partial (loaded via HTMX on keyup)."""
     if not q.strip():
         return HTMLResponse("")
@@ -66,7 +68,7 @@ async def search_partial(
 
 
 @router.get("/partials/recent", response_class=HTMLResponse)
-async def recent_partial():
+async def recent_partial() -> HTMLResponse:
     """Recent items table partial (loaded via HTMX)."""
     from lotse.inlets.api import _get_engine
 
@@ -78,7 +80,7 @@ async def recent_partial():
 @router.post("/partials/upload", response_class=HTMLResponse)
 async def upload_partial(
     file: Annotated[UploadFile, File(description="File to classify and route")],
-):
+) -> HTMLResponse:
     """Handle file upload and return result partial."""
     from lotse.inlets.api import _get_engine
 

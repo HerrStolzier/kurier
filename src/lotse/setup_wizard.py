@@ -7,6 +7,7 @@ import platform
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Any
 
 from rich.console import Console
 from rich.panel import Panel
@@ -78,10 +79,10 @@ def run_wizard() -> bool:
 # --- System Detection ---
 
 
-def _check_system() -> dict:
+def _check_system() -> dict[str, Any]:
     """Detect OS, RAM, and available tools."""
 
-    info: dict = {
+    info: dict[str, Any] = {
         "os": platform.system(),
         "os_version": platform.version(),
         "arch": platform.machine(),
@@ -130,7 +131,7 @@ def _detect_ram() -> int:
 
         elif system == "Windows":
             import ctypes
-            kernel32 = ctypes.windll.kernel32
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
             c_ulong = ctypes.c_ulong
 
             class MEMORYSTATUS(ctypes.Structure):
@@ -149,7 +150,7 @@ def _detect_ram() -> int:
             mem = MEMORYSTATUS()
             mem.dwLength = ctypes.sizeof(MEMORYSTATUS)
             kernel32.GlobalMemoryStatusEx(ctypes.byref(mem))
-            return mem.dwTotalPhys // (1024 ** 3)
+            return int(mem.dwTotalPhys) // (1024 ** 3)
 
     except Exception as e:
         logger.debug("RAM detection failed: %s", e)
@@ -183,7 +184,7 @@ def _list_ollama_models() -> list[str]:
         return []
 
 
-def _print_system_info(info: dict) -> None:
+def _print_system_info(info: dict[str, Any]) -> None:
     """Display system info in a nice table."""
     table = Table(title="System Check", show_header=False, border_style="blue")
     table.add_column("Property", style="dim")
@@ -220,7 +221,7 @@ def _print_system_info(info: dict) -> None:
 # --- LLM Configuration ---
 
 
-def _configure_llm(sys_info: dict) -> dict | None:
+def _configure_llm(sys_info: dict[str, Any]) -> dict[str, Any] | None:
     """Guide user through LLM backend selection."""
     console.print("[bold]Step 1: LLM Backend[/bold]\n")
 
@@ -258,7 +259,7 @@ def _configure_llm(sys_info: dict) -> dict | None:
         return None
 
 
-def _configure_ollama_existing(sys_info: dict) -> dict:
+def _configure_ollama_existing(sys_info: dict[str, Any]) -> dict[str, Any]:
     """Configure Ollama when models are already available."""
     models = sys_info["ollama_models"]
 
@@ -287,7 +288,7 @@ def _configure_ollama_existing(sys_info: dict) -> dict:
     return _configure_ollama_new(sys_info)
 
 
-def _configure_ollama_new(sys_info: dict) -> dict:
+def _configure_ollama_new(sys_info: dict[str, Any]) -> dict[str, Any]:
     """Guide user to pull a new Ollama model based on their RAM."""
     ram = sys_info["ram_gb"]
 
@@ -343,7 +344,7 @@ def _configure_ollama_new(sys_info: dict) -> dict:
     }
 
 
-def _configure_cloud(provider: str, default_model: str) -> dict:
+def _configure_cloud(provider: str, default_model: str) -> dict[str, Any]:
     """Configure a cloud LLM provider."""
     console.print(f"\n[bold]{provider.title()} Configuration[/bold]\n")
     console.print(Panel(
@@ -376,7 +377,7 @@ def _configure_cloud(provider: str, default_model: str) -> dict:
 # --- Route Configuration ---
 
 
-def _configure_routes() -> dict:
+def _configure_routes() -> dict[str, Any]:
     """Guide user through basic route setup."""
     console.print("\n[bold]Step 2: Routes[/bold]\n")
     console.print(
@@ -426,7 +427,7 @@ def _configure_routes() -> dict:
 # --- Config Writing ---
 
 
-def _write_config(llm_config: dict, routes: dict) -> None:
+def _write_config(llm_config: dict[str, Any], routes: dict[str, Any]) -> None:
     """Write the configuration file."""
     DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -471,7 +472,7 @@ def _write_config(llm_config: dict, routes: dict) -> None:
 # --- Test Classification ---
 
 
-def _run_test(llm_config: dict) -> None:
+def _run_test(llm_config: dict[str, Any]) -> None:
     """Run a quick test classification to verify everything works."""
     console.print("\n[bold]Step 3: Verification[/bold]\n")
     console.print("[blue]Running test classification...[/blue]")

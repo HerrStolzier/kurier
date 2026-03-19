@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
-from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 from lotse import __version__
@@ -39,10 +40,8 @@ def create_app(config: LotseConfig | None = None) -> FastAPI:
     api.include_router(dashboard_router)
 
     # Redirect root to dashboard
-    from fastapi.responses import RedirectResponse
-
     @api.get("/", include_in_schema=False)
-    async def root_redirect():
+    async def root_redirect() -> RedirectResponse:
         return RedirectResponse(url="/dashboard/")
 
     return api
@@ -97,20 +96,18 @@ def _get_engine() -> Engine:
     return _engine
 
 
-def _build_router():
-    from fastapi import APIRouter
-
+def _build_router() -> APIRouter:
     router = APIRouter()
 
     @router.get("/health", response_model=HealthResponse)
-    async def health():
+    async def health() -> HealthResponse:
         """Health check endpoint."""
         return HealthResponse(status="ok", version=__version__)
 
     @router.post("/ingest/file", response_model=IngestResponse)
     async def ingest_file(
         file: Annotated[UploadFile, File(description="File to classify and route")],
-    ):
+    ) -> IngestResponse:
         """Upload a file to be classified and routed."""
         engine = _get_engine()
 
@@ -145,7 +142,7 @@ def _build_router():
     async def ingest_text(
         text: Annotated[str, Form(description="Text content to classify")],
         name: Annotated[str, Form(description="Optional name")] = "api_input",
-    ):
+    ) -> IngestResponse:
         """Submit text to be classified."""
         engine = _get_engine()
 
@@ -166,7 +163,7 @@ def _build_router():
         q: Annotated[str, Query(description="Search query", min_length=1)],
         limit: Annotated[int, Query(ge=1, le=100)] = 20,
         mode: Annotated[str, Query(description="fts, vec, or auto")] = "auto",
-    ):
+    ) -> SearchResponse:
         """Search processed items. Supports keyword, semantic, and hybrid search."""
         engine = _get_engine()
 
@@ -195,7 +192,7 @@ def _build_router():
         )
 
     @router.get("/status", response_model=StatusResponse)
-    async def get_status():
+    async def get_status() -> StatusResponse:
         """Get processing statistics."""
         engine = _get_engine()
         s = engine.stats()
@@ -212,9 +209,10 @@ def _build_router():
     @router.get("/recent")
     async def recent_items(
         limit: Annotated[int, Query(ge=1, le=100)] = 20,
-    ):
+    ) -> list[dict[str, Any]]:
         """Get most recently processed items."""
         engine = _get_engine()
-        return engine.store.recent(limit=limit)
+        result: list[dict[str, Any]] = engine.store.recent(limit=limit)
+        return result
 
     return router

@@ -57,7 +57,7 @@ plugins/lotse-webhook/     # First-party plugin: webhook routes (Slack, Discord,
 
 ## Key Patterns
 
-- **LLM calls go through LiteLLM** (`core/classifier.py`). Model ID format: `provider/model` (e.g., `ollama/mistral`). Ollama needs explicit `api_base`.
+- **LLM calls go through LiteLLM** (`core/classifier.py`). Model ID format: `provider/model` (e.g., `ollama/qwen3.5:4b`). Ollama needs explicit `api_base`.
 - **Embedding model is lazy-loaded** (`engine.py:embedder` property). FastEmbed loads ~33MB model on first use — don't import at module level.
 - **SQLite connection uses `check_same_thread=False`** — required for FastAPI async endpoints. WAL mode protects concurrent writes.
 - **sqlite-vec loads as extension** (`store.py:_load_sqlite_vec`). If not installed, vector search degrades gracefully to FTS-only.

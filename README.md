@@ -34,7 +34,7 @@ pip install lotse
 lotse init
 
 # Make sure Ollama is running with a model
-ollama pull mistral
+ollama pull qwen3.5:4b
 
 # Classify and route a file
 lotse add invoice.pdf
@@ -81,7 +81,7 @@ Lotse supports any LLM provider via [LiteLLM](https://github.com/BerriAI/litellm
 
 | Provider | Config |
 |----------|--------|
-| Ollama (local) | `provider = "ollama"`, `model = "mistral"` |
+| Ollama (local) | `provider = "ollama"`, `model = "qwen3.5:4b"` |
 | OpenAI | `provider = "openai"`, `model = "gpt-4o-mini"` |
 | Anthropic | `provider = "anthropic"`, `model = "claude-sonnet-4-5-20250514"` |
 | HuggingFace | `provider = "huggingface"`, `model = "meta-llama/..."` |

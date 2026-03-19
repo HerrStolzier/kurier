@@ -320,55 +320,82 @@ def status(
 @app.command()
 def init(
     config: Path | None = typer.Option(None, "--config", "-c"),
+    quick: bool = typer.Option(False, "--quick", "-q", help="Skip wizard, use defaults"),
 ) -> None:
-    """Initialize Lotse with a default configuration."""
+    """Initialize Lotse — interactive setup wizard."""
     path = config or DEFAULT_CONFIG_FILE
     if path.exists():
         console.print(f"[yellow]Config already exists:[/yellow] {path}")
+        console.print("[dim]Delete it first or edit manually.[/dim]")
         raise typer.Exit(1)
 
-    DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    if quick:
+        # Quick mode: write defaults without wizard
+        DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        default_config = (
+            '# Lotse Configuration\n'
+            '# https://github.com/HerrStolzier/lotse\n\n'
+            '[llm]\nprovider = "ollama"\nmodel = "qwen3.5:4b"\n'
+            'base_url = "http://localhost:11434"\ntemperature = 0.1\n\n'
+            '[embeddings]\nmodel = "BAAI/bge-small-en-v1.5"\n\n'
+            '[database]\npath = "~/.local/share/lotse/lotse.db"\n\n'
+            '[routes.archiv]\ntype = "folder"\n'
+            'path = "~/Documents/Lotse/Archiv"\n'
+            'categories = ["rechnung", "vertrag", "brief", "bescheid"]\n'
+            'confidence_threshold = 0.7\n\n'
+            '[routes.artikel]\ntype = "folder"\n'
+            'path = "~/Documents/Lotse/Artikel"\n'
+            'categories = ["artikel", "paper", "tutorial", "dokumentation"]\n'
+            'confidence_threshold = 0.6\n\n'
+            '[routes.code]\ntype = "folder"\n'
+            'path = "~/Documents/Lotse/Code"\n'
+            'categories = ["code", "config", "script"]\n'
+            'confidence_threshold = 0.6\n'
+        )
+        path.write_text(default_config)
+        console.print(f"[green]✓[/green] Config created: {path}")
+        return
 
-    default_config = '''\
-# Lotse Configuration
-# https://github.com/HerrStolzier/lotse
+    from lotse.setup_wizard import run_wizard
 
-[llm]
-provider = "ollama"
-model = "mistral"
-base_url = "http://localhost:11434"
-temperature = 0.1
+    success = run_wizard()
+    if not success:
+        console.print("[red]Setup cancelled.[/red]")
+        raise typer.Exit(1)
 
-[embeddings]
-model = "BAAI/bge-small-en-v1.5"
 
-[database]
-path = "~/.local/share/lotse/lotse.db"
+@app.command()
+def doctor() -> None:
+    """Check system health and LLM availability."""
+    from lotse.setup_wizard import _check_system, _print_system_info
 
-# Define your routes below.
-# Each route matches categories from LLM classification.
+    sys_info = _check_system()
+    _print_system_info(sys_info)
 
-[routes.archiv]
-type = "folder"
-path = "~/Documents/Lotse/Archiv"
-categories = ["rechnung", "vertrag", "brief", "bescheid"]
-confidence_threshold = 0.7
+    # Check config
+    if DEFAULT_CONFIG_FILE.exists():
+        console.print(f"[green]Config:[/green] {DEFAULT_CONFIG_FILE}")
+        cfg = _get_config()
 
-[routes.artikel]
-type = "folder"
-path = "~/Documents/Lotse/Artikel"
-categories = ["artikel", "paper", "tutorial", "dokumentation"]
-confidence_threshold = 0.6
-
-[routes.code]
-type = "folder"
-path = "~/Documents/Lotse/Code"
-categories = ["code", "config", "script"]
-confidence_threshold = 0.6
-'''
-    path.write_text(default_config)
-    console.print(f"[green]✓[/green] Config created: {path}")
-    console.print("[dim]Edit the config to customize your routes.[/dim]")
+        # Check LLM connectivity
+        console.print(f"[dim]LLM:[/dim] {cfg.llm.provider}/{cfg.llm.model}")
+        if cfg.llm.provider == "ollama":
+            if sys_info["ollama_running"]:
+                if cfg.llm.model in [m.split(":")[0] for m in sys_info["ollama_models"]]:
+                    console.print(f"[green]Model '{cfg.llm.model}' available.[/green]")
+                else:
+                    available = ", ".join(sys_info["ollama_models"][:5]) or "none"
+                    console.print(
+                        f"[red]Model '{cfg.llm.model}' not found.[/red]\n"
+                        f"[dim]Available: {available}[/dim]\n"
+                        f"[dim]Pull it: ollama pull {cfg.llm.model}[/dim]"
+                    )
+            else:
+                console.print("[red]Ollama not running.[/red] Start with: ollama serve")
+        else:
+            console.print("[dim](Cloud provider — API key must be set as env var)[/dim]")
+    else:
+        console.print("[yellow]No config found.[/yellow] Run: lotse init")
 
 
 @app.command()

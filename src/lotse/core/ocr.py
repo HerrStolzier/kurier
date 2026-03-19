@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +77,7 @@ def _extract_from_pdf(file_path: Path, languages: str) -> str | None:
     return "\n\n".join(pages_text) if pages_text else ""
 
 
-def _ocr_pdf_page(page, languages: str) -> str | None:
+def _ocr_pdf_page(page: Any, languages: str) -> str | None:
     """Run Tesseract OCR on a single PDF page via pytesseract."""
     try:
         import pytesseract

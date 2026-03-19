@@ -86,6 +86,24 @@ strict = true
 warn_return_any = true
 warn_unused_configs = true
 
+[[tool.mypy.overrides]]
+module = [
+    "sqlite_vec",
+    "pymupdf",
+    "pytesseract",
+    "PIL.*",
+    "lotse_webhook",
+    "uvicorn",
+    "uvicorn.*",
+    "fastapi",
+    "fastapi.*",
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["lotse.inlets.api", "lotse.dashboard.routes"]
+disallow_untyped_decorators = false
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v --tb=short"

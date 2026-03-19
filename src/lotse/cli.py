@@ -81,7 +81,10 @@ def watch(
     console.print(f"[blue]Watching:[/blue] {cfg.inbox_dir}")
     console.print("[dim]Press Ctrl+C to stop[/dim]")
 
-    watcher = Watcher(cfg.inbox_dir, engine.ingest_file)
+    def _ingest_and_discard(p: Path) -> None:
+        engine.ingest_file(p)
+
+    watcher = Watcher(cfg.inbox_dir, _ingest_and_discard)
     watcher.start()
 
 

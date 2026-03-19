@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pluggy
 
 hookspec = pluggy.HookspecMarker("lotse")
@@ -26,6 +28,7 @@ class LotsePluginSpec:
         Returns:
             Transformed content string
         """
+        return content
 
     @hookspec(firstresult=False)
     def post_classify(self, classification: object, path: str) -> None:
@@ -37,7 +40,7 @@ class LotsePluginSpec:
         """
 
     @hookspec(firstresult=False)
-    def custom_route(self, path: str, classification: object) -> dict | None:
+    def custom_route(self, path: str, classification: object) -> dict[str, Any] | None:
         """Called during routing. Return a dict to handle routing yourself.
 
         Args:

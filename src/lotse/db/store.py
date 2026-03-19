@@ -7,6 +7,7 @@ import logging
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +156,7 @@ class Store:
         limit: int = 20,
         query_embedding: bytes | None = None,
         mode: str = "auto",
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Search items. Modes: 'fts' (keyword only), 'vec' (semantic only), 'auto' (hybrid).
 
         When mode='auto' and a query_embedding is provided, uses hybrid search
@@ -168,7 +169,7 @@ class Store:
         else:
             return self._search_hybrid(query, query_embedding, limit)
 
-    def _search_fts(self, query: str, limit: int) -> list[dict]:
+    def _search_fts(self, query: str, limit: int) -> list[dict[str, Any]]:
         """Full-text keyword search."""
         cursor = self._conn.execute(
             """SELECT items.*, rank
@@ -181,7 +182,7 @@ class Store:
         )
         return [dict(row) for row in cursor.fetchall()]
 
-    def _search_vec(self, query_embedding: bytes, limit: int) -> list[dict]:
+    def _search_vec(self, query_embedding: bytes, limit: int) -> list[dict[str, Any]]:
         """Pure vector similarity search."""
         vec_results = self._conn.execute(
             """SELECT rowid, distance
@@ -205,7 +206,7 @@ class Store:
 
     def _search_hybrid(
         self, query: str, query_embedding: bytes, limit: int
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Hybrid search using Reciprocal Rank Fusion (RRF).
 
         Combines FTS5 keyword results with sqlite-vec semantic results.
@@ -248,7 +249,7 @@ class Store:
             rrf_scores[doc_id] = rrf_scores.get(doc_id, 0) + 1 / (k + rank_pos)
 
         # Sort by RRF score and fetch full items
-        top_ids = sorted(rrf_scores, key=rrf_scores.get, reverse=True)[:limit]
+        top_ids = sorted(rrf_scores, key=lambda k: rrf_scores[k], reverse=True)[:limit]
 
         results = []
         for doc_id in top_ids:
@@ -261,7 +262,7 @@ class Store:
                 results.append(d)
         return results
 
-    def recent(self, limit: int = 20) -> list[dict]:
+    def recent(self, limit: int = 20) -> list[dict[str, Any]]:
         """Get most recently processed items."""
         cursor = self._conn.execute(
             "SELECT * FROM items ORDER BY created_at DESC LIMIT ?",
@@ -276,7 +277,7 @@ class Store:
         row = self._conn.execute("SELECT COUNT(*) FROM items_vec").fetchone()
         return row[0] if row else 0
 
-    def stats(self) -> dict:
+    def stats(self) -> dict[str, Any]:
         """Get processing statistics."""
         total = self._conn.execute("SELECT COUNT(*) FROM items").fetchone()[0]
         categories = self._conn.execute(

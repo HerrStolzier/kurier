@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from pathlib import Path
 from threading import Event
 
-from watchdog.events import FileCreatedEvent, FileSystemEventHandler
+from watchdog.events import DirCreatedEvent, FileCreatedEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
 logger = logging.getLogger(__name__)
@@ -16,16 +17,18 @@ logger = logging.getLogger(__name__)
 class InboxHandler(FileSystemEventHandler):
     """Handles new files appearing in the inbox directory."""
 
-    def __init__(self, callback: callable, cooldown: float = 2.0) -> None:
+    def __init__(self, callback: Callable[[Path], None], cooldown: float = 2.0) -> None:
         self.callback = callback
         self.cooldown = cooldown
         self._seen: dict[str, float] = {}
 
-    def on_created(self, event: FileCreatedEvent) -> None:
+    def on_created(self, event: DirCreatedEvent | FileCreatedEvent) -> None:
         if event.is_directory:
             return
 
-        path = Path(event.src_path)
+        src = event.src_path
+        src_str = src.decode() if isinstance(src, bytes) else src
+        path = Path(src_str)
 
         # Skip hidden files and temp files
         if path.name.startswith(".") or path.name.endswith(".tmp"):
@@ -33,10 +36,10 @@ class InboxHandler(FileSystemEventHandler):
 
         # Cooldown to avoid processing partial writes
         now = time.time()
-        last_seen = self._seen.get(event.src_path, 0)
+        last_seen = self._seen.get(src_str, 0)
         if now - last_seen < self.cooldown:
             return
-        self._seen[event.src_path] = now
+        self._seen[src_str] = now
 
         logger.info("New file detected: %s", path.name)
         try:
@@ -48,7 +51,7 @@ class InboxHandler(FileSystemEventHandler):
 class Watcher:
     """Watches the inbox directory and triggers processing."""
 
-    def __init__(self, inbox_dir: Path, callback: callable) -> None:
+    def __init__(self, inbox_dir: Path, callback: Callable[[Path], None]) -> None:
         self.inbox_dir = inbox_dir
         self.observer = Observer()
         self.handler = InboxHandler(callback)

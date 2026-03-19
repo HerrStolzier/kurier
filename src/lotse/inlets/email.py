@@ -6,9 +6,12 @@ import imaplib
 import logging
 import mailbox
 from dataclasses import dataclass, field
+from email.message import EmailMessage
 from email.parser import BytesParser
 from email.policy import default
+from mailbox import mboxMessage
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +24,7 @@ class ParsedEmail:
     sender: str
     to: str
     body: str
-    attachments: list[dict] = field(default_factory=list)
+    attachments: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def text_for_classification(self) -> str:
@@ -93,7 +96,10 @@ def fetch_imap(
             if data[0] is None:
                 continue
 
-            msg = BytesParser(policy=default).parsebytes(data[0][1])
+            raw = data[0][1]
+            if not isinstance(raw, (bytes, bytearray)):
+                continue
+            msg = BytesParser(policy=default).parsebytes(raw)
             parsed = _extract_email(msg)
             results.append(parsed)
 
@@ -144,7 +150,7 @@ def save_attachments(parsed_email: ParsedEmail, dest_dir: Path) -> list[Path]:
     return saved
 
 
-def _extract_email(msg) -> ParsedEmail:
+def _extract_email(msg: EmailMessage | mboxMessage) -> ParsedEmail:
     """Extract structured data from an email.message object."""
     body = _get_body(msg)
     attachments = _get_attachments(msg)
@@ -158,7 +164,7 @@ def _extract_email(msg) -> ParsedEmail:
     )
 
 
-def _get_body(msg) -> str:
+def _get_body(msg: EmailMessage | mboxMessage) -> str:
     """Extract plain text body from email, falling back to HTML."""
     # Try plain text first
     if msg.is_multipart():
@@ -166,34 +172,38 @@ def _get_body(msg) -> str:
             content_type = part.get_content_type()
             if content_type == "text/plain":
                 try:
-                    return part.get_content()
+                    return str(part.get_content())  # type: ignore[union-attr]
                 except Exception:
                     payload = part.get_payload(decode=True)
                     if payload:
-                        return payload.decode("utf-8", errors="replace")
+                        return bytes(payload).decode("utf-8", errors="replace")
         # Fall back to HTML
         for part in msg.walk():
             if part.get_content_type() == "text/html":
                 try:
-                    html = part.get_content()
+                    html: str = str(part.get_content())  # type: ignore[union-attr]
                 except Exception:
                     payload = part.get_payload(decode=True)
-                    html = payload.decode("utf-8", errors="replace") if payload else ""
+                    html = (
+                        payload.decode("utf-8", errors="replace")
+                        if isinstance(payload, bytes)
+                        else ""
+                    )
                 return _strip_html(html)
     else:
         try:
-            return msg.get_content()
+            return str(msg.get_content())  # type: ignore[union-attr]
         except Exception:
             payload = msg.get_payload(decode=True)
             if payload:
-                return payload.decode("utf-8", errors="replace")
+                return bytes(payload).decode("utf-8", errors="replace")
 
     return ""
 
 
-def _get_attachments(msg) -> list[dict]:
+def _get_attachments(msg: EmailMessage | mboxMessage) -> list[dict[str, Any]]:
     """Extract attachments from email."""
-    attachments = []
+    attachments: list[dict[str, Any]] = []
     if not msg.is_multipart():
         return attachments
 
@@ -223,22 +233,24 @@ def _strip_html(html: str) -> str:
     from html.parser import HTMLParser
 
     class _TextExtractor(HTMLParser):
-        def __init__(self):
+        def __init__(self) -> None:
             super().__init__()
             self.parts: list[str] = []
             self._skip = False
 
-        def handle_starttag(self, tag, attrs):
+        def handle_starttag(
+            self, tag: str, attrs: list[tuple[str, str | None]]
+        ) -> None:
             if tag in ("script", "style"):
                 self._skip = True
 
-        def handle_endtag(self, tag):
+        def handle_endtag(self, tag: str) -> None:
             if tag in ("script", "style"):
                 self._skip = False
             if tag in ("p", "br", "div", "li", "h1", "h2", "h3", "h4", "tr"):
                 self.parts.append("\n")
 
-        def handle_data(self, data):
+        def handle_data(self, data: str) -> None:
             if not self._skip:
                 self.parts.append(data)
 

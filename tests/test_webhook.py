@@ -36,8 +36,11 @@ def router_with_webhook(tmp_path: Path) -> Router:
 def test_find_routes_returns_multiple(router_with_webhook: Router) -> None:
     """Both folder and webhook routes should match."""
     classification = Classification(
-        category="rechnung", confidence=0.9,
-        summary="Invoice", tags=[], language="de",
+        category="rechnung",
+        confidence=0.9,
+        summary="Invoice",
+        tags=[],
+        language="de",
     )
     matches = router_with_webhook.find_routes(classification)
     assert len(matches) == 2
@@ -58,24 +61,28 @@ def test_wildcard_categories(tmp_path: Path) -> None:
     router = Router(routes, tmp_path / "review")
 
     classification = Classification(
-        category="anything", confidence=0.5,
-        summary="Test", tags=[], language="en",
+        category="anything",
+        confidence=0.5,
+        summary="Test",
+        tags=[],
+        language="en",
     )
     matches = router.find_routes(classification)
     assert len(matches) == 1
     assert matches[0][0] == "catchall"
 
 
-def test_webhook_route_sends_and_keeps_file(
-    router_with_webhook: Router, tmp_path: Path
-) -> None:
+def test_webhook_route_sends_and_keeps_file(router_with_webhook: Router, tmp_path: Path) -> None:
     """Webhook fires but file is moved by folder route, not webhook."""
     source = tmp_path / "invoice.pdf"
     source.write_text("test content")
 
     classification = Classification(
-        category="rechnung", confidence=0.9,
-        summary="Telekom invoice", tags=["telekom"], language="de",
+        category="rechnung",
+        confidence=0.9,
+        summary="Telekom invoice",
+        tags=["telekom"],
+        language="de",
     )
 
     with patch("lotse_webhook.send_webhook", return_value=True) as mock:
@@ -102,8 +109,11 @@ def test_webhook_only_route(tmp_path: Path) -> None:
     source.write_text("test")
 
     classification = Classification(
-        category="artikel", confidence=0.8,
-        summary="Article", tags=[], language="en",
+        category="artikel",
+        confidence=0.8,
+        summary="Article",
+        tags=[],
+        language="en",
     )
 
     with patch("lotse_webhook.send_webhook", return_value=True):
@@ -122,8 +132,11 @@ def test_webhook_failure_does_not_block_folder_route(
     source.write_text("test content")
 
     classification = Classification(
-        category="rechnung", confidence=0.9,
-        summary="Invoice", tags=[], language="de",
+        category="rechnung",
+        confidence=0.9,
+        summary="Invoice",
+        tags=[],
+        language="de",
     )
 
     with patch("lotse_webhook.send_webhook", return_value=False):

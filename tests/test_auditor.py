@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from lotse.core.auditor import AuditIssue, AuditReport, Auditor
+from lotse.core.auditor import AuditIssue, Auditor, AuditReport
 from lotse.core.config import LotseConfig
 
 
@@ -59,9 +59,11 @@ def test_empty_report() -> None:
 
 
 def test_report_with_issues() -> None:
-    report = AuditReport(issues=[
-        AuditIssue(severity="high", issue_type="missing", message="test"),
-    ])
+    report = AuditReport(
+        issues=[
+            AuditIssue(severity="high", issue_type="missing", message="test"),
+        ]
+    )
     assert report.total_issues == 1
     assert report.has_issues
 

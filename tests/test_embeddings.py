@@ -18,7 +18,7 @@ def test_float_roundtrip() -> None:
     unpacked = _bytes_to_float_list(packed)
 
     assert len(unpacked) == len(original)
-    for a, b in zip(original, unpacked):
+    for a, b in zip(original, unpacked, strict=False):
         assert abs(a - b) < 1e-6
 
 

@@ -45,13 +45,15 @@ def test_ingest_text(client: TestClient) -> None:
     """Test text ingestion via API (with mocked LLM)."""
     mock_response = MagicMock()
     mock_response.choices = [MagicMock()]
-    mock_response.choices[0].message.content = json.dumps({
-        "category": "notiz",
-        "confidence": 0.85,
-        "summary": "A test note",
-        "tags": ["test"],
-        "language": "en",
-    })
+    mock_response.choices[0].message.content = json.dumps(
+        {
+            "category": "notiz",
+            "confidence": 0.85,
+            "summary": "A test note",
+            "tags": ["test"],
+            "language": "en",
+        }
+    )
 
     with patch("lotse.core.classifier.completion", return_value=mock_response):
         resp = client.post(
@@ -74,13 +76,15 @@ def test_ingest_file(client: TestClient, tmp_path: Path) -> None:
     """Test file upload via API (with mocked LLM)."""
     mock_response = MagicMock()
     mock_response.choices = [MagicMock()]
-    mock_response.choices[0].message.content = json.dumps({
-        "category": "artikel",
-        "confidence": 0.9,
-        "summary": "Python tutorial",
-        "tags": ["python"],
-        "language": "en",
-    })
+    mock_response.choices[0].message.content = json.dumps(
+        {
+            "category": "artikel",
+            "confidence": 0.9,
+            "summary": "Python tutorial",
+            "tags": ["python"],
+            "language": "en",
+        }
+    )
 
     with patch("lotse.core.classifier.completion", return_value=mock_response):
         resp = client.post(
@@ -110,13 +114,15 @@ def test_search_after_ingest(client: TestClient) -> None:
     """Ingest then search should find the item."""
     mock_response = MagicMock()
     mock_response.choices = [MagicMock()]
-    mock_response.choices[0].message.content = json.dumps({
-        "category": "rechnung",
-        "confidence": 0.95,
-        "summary": "Telekom Rechnung März",
-        "tags": ["telekom"],
-        "language": "de",
-    })
+    mock_response.choices[0].message.content = json.dumps(
+        {
+            "category": "rechnung",
+            "confidence": 0.95,
+            "summary": "Telekom Rechnung März",
+            "tags": ["telekom"],
+            "language": "de",
+        }
+    )
 
     with patch("lotse.core.classifier.completion", return_value=mock_response):
         client.post(

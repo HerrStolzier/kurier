@@ -51,7 +51,9 @@ def send_webhook(
     except httpx.HTTPStatusError as e:
         logger.warning(
             "Webhook %s returned %d: %s",
-            _mask_url(url), e.response.status_code, e.response.text[:200],
+            _mask_url(url),
+            e.response.status_code,
+            e.response.text[:200],
         )
         return False
     except httpx.RequestError as e:
@@ -136,6 +138,7 @@ def _format_discord(item_data: dict, timestamp: str) -> dict:
 
 def _is_slack_url(url: str) -> bool:
     return "hooks.slack.com" in url
+
 
 def _is_discord_url(url: str) -> bool:
     return "discord.com/api/webhooks" in url or "discordapp.com/api/webhooks" in url

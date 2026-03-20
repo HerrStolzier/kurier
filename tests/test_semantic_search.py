@@ -74,9 +74,7 @@ def test_vector_search(store: Store) -> None:
     )
 
     # Search with embedding close to the first item
-    results = store.search(
-        query="", query_embedding=_make_embedding(0.1), mode="vec"
-    )
+    results = store.search(query="", query_embedding=_make_embedding(0.1), mode="vec")
     assert len(results) == 2
     # First result should be closer to seed=0.1
     assert results[0]["category"] == "rechnung"

@@ -3,7 +3,7 @@
 import json
 from unittest.mock import MagicMock, patch
 
-from lotse.core.classifier import Classification, Classifier
+from lotse.core.classifier import Classifier
 from lotse.core.config import LLMConfig
 
 

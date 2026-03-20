@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Run global security hooks if they exist
+GLOBAL_HOOK="/Users/clawdkent/.codex/git-hooks/pre-commit"
+if [ -x "${GLOBAL_HOOK}" ]; then
+  "${GLOBAL_HOOK}"
+fi
+
+# Run ruff lint + format via pre-commit
+uv run pre-commit run --hook-stage pre-commit

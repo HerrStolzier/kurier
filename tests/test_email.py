@@ -102,7 +102,9 @@ def test_save_attachments_handles_collision(multipart_eml: Path, tmp_path: Path)
 
 
 def test_strip_html() -> None:
-    html = "<html><body><h1>Title</h1><p>Hello <b>world</b></p><script>evil()</script></body></html>"
+    html = (
+        "<html><body><h1>Title</h1><p>Hello <b>world</b></p><script>evil()</script></body></html>"
+    )
     text = _strip_html(html)
     assert "Title" in text
     assert "Hello world" in text
@@ -115,8 +117,11 @@ def test_strip_html_empty() -> None:
 
 def test_parsed_email_no_attachments() -> None:
     email = ParsedEmail(
-        subject="Test", sender="a@b.com", to="c@d.com",
-        body="Hello", attachments=[],
+        subject="Test",
+        sender="a@b.com",
+        to="c@d.com",
+        body="Hello",
+        attachments=[],
     )
     assert email.attachments == []
     assert "Subject: Test" in email.text_for_classification

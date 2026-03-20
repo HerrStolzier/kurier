@@ -225,24 +225,20 @@ class Router:
 
         # Check if any route has this category
         routes_with_category = [
-            (name, r) for name, r in self.routes.items()
+            (name, r)
+            for name, r in self.routes.items()
             if category in r.categories or not r.categories
         ]
 
         if not routes_with_category:
-            configured = sorted({
-                cat for r in self.routes.values() for cat in r.categories
-            })
+            configured = sorted({cat for r in self.routes.values() for cat in r.categories})
             return (
                 f"no route configured for category '{category}'. "
                 f"Configured: {', '.join(configured)}"
             )
 
         # Category exists but confidence too low
-        thresholds = [
-            (name, r.confidence_threshold)
-            for name, r in routes_with_category
-        ]
+        thresholds = [(name, r.confidence_threshold) for name, r in routes_with_category]
         best_name, best_threshold = min(thresholds, key=lambda x: x[1])
         return (
             f"confidence too low for '{category}' "

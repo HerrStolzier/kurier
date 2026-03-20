@@ -61,9 +61,7 @@ class Engine:
             )
 
         # Step 2: Let plugins pre-process (pluggy returns list of hook results)
-        hook_results = self.plugin_manager.hook.pre_classify(
-            content=content, path=str(file_path)
-        )
+        hook_results = self.plugin_manager.hook.pre_classify(content=content, path=str(file_path))
         if hook_results:
             # Use the last plugin's transformed content
             content = hook_results[-1]

@@ -79,9 +79,7 @@ class Auditor:
             self._check_duplicates(items, report, audit_cfg.similarity_threshold)
 
         if check_confidence:
-            self._check_low_confidence(
-                items, report, audit_cfg.confidence_threshold
-            )
+            self._check_low_confidence(items, report, audit_cfg.confidence_threshold)
 
         if check_orphaned:
             self._check_orphaned_review(report)
@@ -90,9 +88,7 @@ class Auditor:
             self._check_missing_destinations(items, report)
 
         if check_misclassified and audit_cfg.reclassify_sample > 0:
-            self._check_misclassified(
-                items, report, audit_cfg.reclassify_sample
-            )
+            self._check_misclassified(items, report, audit_cfg.reclassify_sample)
 
         return report
 
@@ -162,21 +158,21 @@ class Auditor:
 
                     if other:
                         other = dict(other)
-                        report.issues.append(AuditIssue(
-                            severity="medium",
-                            issue_type="duplicate",
-                            message=(
-                                f"Possible duplicate: "
-                                f"'{item.get('summary', '')[:50]}' "
-                                f"and '{other.get('summary', '')[:50]}' "
-                                f"(similarity: {similarity:.0%})"
-                            ),
-                            item_id=item_id,
-                            related_id=other_id,
-                            suggested_action=(
-                                "Review and delete the duplicate"
-                            ),
-                        ))
+                        report.issues.append(
+                            AuditIssue(
+                                severity="medium",
+                                issue_type="duplicate",
+                                message=(
+                                    f"Possible duplicate: "
+                                    f"'{item.get('summary', '')[:50]}' "
+                                    f"and '{other.get('summary', '')[:50]}' "
+                                    f"(similarity: {similarity:.0%})"
+                                ),
+                                item_id=item_id,
+                                related_id=other_id,
+                                suggested_action=("Review and delete the duplicate"),
+                            )
+                        )
                         report.duplicates_found += 1
 
     def _check_low_confidence(
@@ -189,19 +185,19 @@ class Auditor:
         for item in items:
             confidence = item.get("confidence", 0)
             if confidence < threshold and item.get("route_name") != "__review__":
-                report.issues.append(AuditIssue(
-                    severity="low",
-                    issue_type="low_confidence",
-                    message=(
-                        f"Low confidence ({confidence:.0%}): "
-                        f"'{item.get('summary', '')[:60]}' "
-                        f"classified as '{item.get('category', '?')}'"
-                    ),
-                    item_id=item["id"],
-                    suggested_action=(
-                        f"Verify category '{item.get('category')}' is correct"
-                    ),
-                ))
+                report.issues.append(
+                    AuditIssue(
+                        severity="low",
+                        issue_type="low_confidence",
+                        message=(
+                            f"Low confidence ({confidence:.0%}): "
+                            f"'{item.get('summary', '')[:60]}' "
+                            f"classified as '{item.get('category', '?')}'"
+                        ),
+                        item_id=item["id"],
+                        suggested_action=(f"Verify category '{item.get('category')}' is correct"),
+                    )
+                )
                 report.low_confidence_count += 1
 
     def _check_orphaned_review(self, report: AuditReport) -> None:
@@ -210,23 +206,20 @@ class Auditor:
         if not review_dir.exists():
             return
 
-        orphaned = [
-            f for f in review_dir.iterdir()
-            if not f.name.startswith(".")
-        ]
+        orphaned = [f for f in review_dir.iterdir() if not f.name.startswith(".")]
 
         for f in orphaned:
-            report.issues.append(AuditIssue(
-                severity="low",
-                issue_type="orphaned",
-                message=f"Unreviewed file: {f.name}",
-                suggested_action="Re-classify or manually sort this file",
-            ))
+            report.issues.append(
+                AuditIssue(
+                    severity="low",
+                    issue_type="orphaned",
+                    message=f"Unreviewed file: {f.name}",
+                    suggested_action="Re-classify or manually sort this file",
+                )
+            )
             report.orphaned_count += 1
 
-    def _check_missing_destinations(
-        self, items: list[dict], report: AuditReport
-    ) -> None:
+    def _check_missing_destinations(self, items: list[dict], report: AuditReport) -> None:
         """Check if routed files still exist at their destination."""
         for item in items:
             dest = item.get("destination", "")
@@ -240,18 +233,17 @@ class Auditor:
 
             dest_path = Path(dest)
             if not dest_path.exists():
-                report.issues.append(AuditIssue(
-                    severity="high",
-                    issue_type="missing",
-                    message=(
-                        f"File missing: '{item.get('summary', '')[:40]}' "
-                        f"expected at {dest}"
-                    ),
-                    item_id=item["id"],
-                    suggested_action=(
-                        "File was moved or deleted after routing"
-                    ),
-                ))
+                report.issues.append(
+                    AuditIssue(
+                        severity="high",
+                        issue_type="missing",
+                        message=(
+                            f"File missing: '{item.get('summary', '')[:40]}' expected at {dest}"
+                        ),
+                        item_id=item["id"],
+                        suggested_action=("File was moved or deleted after routing"),
+                    )
+                )
                 report.missing_count += 1
 
     def _check_misclassified(
@@ -274,8 +266,7 @@ class Auditor:
 
         # Sample items that have stored content
         candidates = [
-            i for i in items
-            if i.get("content_text") and len(i.get("content_text", "")) > 20
+            i for i in items if i.get("content_text") and len(i.get("content_text", "")) > 20
         ][:sample_size]
 
         for item in candidates:
@@ -293,17 +284,17 @@ class Auditor:
                 and new_result.confidence > 0.7
                 and old_category != "unknown"
             ):
-                report.issues.append(AuditIssue(
-                    severity="high",
-                    issue_type="misclassified",
-                    message=(
-                        f"Was '{old_category}', now classified as "
-                        f"'{new_category}' ({new_result.confidence:.0%}): "
-                        f"'{item.get('summary', '')[:50]}'"
-                    ),
-                    item_id=item["id"],
-                    suggested_action=(
-                        f"Move from '{old_category}' to '{new_category}'"
-                    ),
-                ))
+                report.issues.append(
+                    AuditIssue(
+                        severity="high",
+                        issue_type="misclassified",
+                        message=(
+                            f"Was '{old_category}', now classified as "
+                            f"'{new_category}' ({new_result.confidence:.0%}): "
+                            f"'{item.get('summary', '')[:50]}'"
+                        ),
+                        item_id=item["id"],
+                        suggested_action=(f"Move from '{old_category}' to '{new_category}'"),
+                    )
+                )
                 report.misclassifications_found += 1

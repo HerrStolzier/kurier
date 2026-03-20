@@ -488,10 +488,7 @@ def audit(
 def _run_interactive_fixes(cfg: LotseConfig, report) -> None:
     """Walk through issues and offer fixes."""
 
-    fixable = [
-        i for i in report.issues
-        if i.issue_type in ("orphaned", "misclassified")
-    ]
+    fixable = [i for i in report.issues if i.issue_type in ("orphaned", "misclassified")]
 
     if not fixable:
         console.print("[dim]No auto-fixable issues. Manual review needed.[/dim]")
@@ -503,9 +500,11 @@ def _run_interactive_fixes(cfg: LotseConfig, report) -> None:
         console.print(f"[dim]Suggested: {issue.suggested_action}[/dim]")
 
         if issue.issue_type == "orphaned":
-            answer = console.input(
-                "[bold]Re-classify this file? [y/n/skip all]:[/bold] "
-            ).strip().lower()
+            answer = (
+                console.input("[bold]Re-classify this file? [y/n/skip all]:[/bold] ")
+                .strip()
+                .lower()
+            )
 
             if answer == "y":
                 success = _fix_reclassify_orphan(cfg, issue.message)
@@ -518,9 +517,11 @@ def _run_interactive_fixes(cfg: LotseConfig, report) -> None:
                 break
 
         elif issue.issue_type == "misclassified":
-            answer = console.input(
-                "[bold]Accept new classification? [y/n/skip all]:[/bold] "
-            ).strip().lower()
+            answer = (
+                console.input("[bold]Accept new classification? [y/n/skip all]:[/bold] ")
+                .strip()
+                .lower()
+            )
 
             if answer == "y":
                 console.print(

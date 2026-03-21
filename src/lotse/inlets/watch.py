@@ -6,7 +6,7 @@ import logging
 import time
 from collections.abc import Callable
 from pathlib import Path
-from threading import Event
+from threading import Event, Semaphore
 
 from watchdog.events import DirCreatedEvent, FileCreatedEvent, FileSystemEventHandler
 from watchdog.observers import Observer
@@ -17,10 +17,16 @@ logger = logging.getLogger(__name__)
 class InboxHandler(FileSystemEventHandler):
     """Handles new files appearing in the inbox directory."""
 
-    def __init__(self, callback: Callable[[Path], None], cooldown: float = 2.0) -> None:
+    def __init__(
+        self,
+        callback: Callable[[Path], None],
+        cooldown: float = 2.0,
+        semaphore: Semaphore | None = None,
+    ) -> None:
         self.callback = callback
         self.cooldown = cooldown
         self._seen: dict[str, float] = {}
+        self._semaphore = semaphore
 
     def on_created(self, event: DirCreatedEvent | FileCreatedEvent) -> None:
         if event.is_directory:
@@ -42,19 +48,33 @@ class InboxHandler(FileSystemEventHandler):
         self._seen[src_str] = now
 
         logger.info("New file detected: %s", path.name)
+
+        if self._semaphore is not None:
+            logger.debug("Waiting for processing slot...")
+            self._semaphore.acquire()
+
         try:
             self.callback(path)
         except Exception as e:
             logger.error("Error processing %s: %s", path.name, e)
+        finally:
+            if self._semaphore is not None:
+                self._semaphore.release()
 
 
 class Watcher:
     """Watches the inbox directory and triggers processing."""
 
-    def __init__(self, inbox_dir: Path, callback: Callable[[Path], None]) -> None:
+    def __init__(
+        self,
+        inbox_dir: Path,
+        callback: Callable[[Path], None],
+        max_concurrent: int = 3,
+    ) -> None:
         self.inbox_dir = inbox_dir
         self.observer = Observer()
-        self.handler = InboxHandler(callback)
+        self._semaphore = Semaphore(max_concurrent)
+        self.handler = InboxHandler(callback, semaphore=self._semaphore)
         self._stop_event = Event()
 
     def start(self) -> None:

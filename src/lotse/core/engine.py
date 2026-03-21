@@ -22,7 +22,7 @@ class Engine:
 
     def __init__(self, config: LotseConfig) -> None:
         self.config = config
-        self.classifier = Classifier(config.llm)
+        self.classifier = Classifier(config.llm, lotse_config=config)
         self.router = Router(config.routes, config.review_dir)
         self.store = Store(config.database.path)
         self.plugin_manager = PluginManager()
@@ -78,26 +78,52 @@ class Engine:
         # Step 4: Let plugins post-process classification
         self.plugin_manager.hook.post_classify(classification=classification, path=str(file_path))
 
-        # Step 5: Route
-        result = self.router.execute(file_path, classification)
-
-        # Step 6: Generate embedding for semantic search
-        embedding = self._generate_embedding(content, classification)
-
-        # Step 7: Store in database (respect privacy setting)
+        # Step 5: Store with status='pending' to get item_id before routing
         store_content = self.config.database.store_content
-        self.store.record_item(
+        item_id = self.store.record_item(
             original_path=str(file_path),
-            destination=result.destination,
+            destination="",
             category=classification.category,
             confidence=classification.confidence,
             summary=classification.summary,
             tags=classification.tags,
             language=classification.language,
-            route_name=result.route_name,
+            route_name="__pending__",
             content_text=content[:2000] if store_content else "",
-            embedding=embedding,
+            status="pending",
         )
+
+        # Step 6: Try to route
+        try:
+            result = self.router.execute(file_path, classification)
+            self.store.update_status(item_id, "routed")
+            # Patch destination and route_name after successful routing
+            self.store._conn.execute(
+                "UPDATE items SET destination = ?, route_name = ? WHERE id = ?",
+                (result.destination, result.route_name, item_id),
+            )
+            self.store._conn.commit()
+        except Exception as exc:
+            logger.warning("Routing failed for %s: %s", file_path.name, exc)
+            self.store.update_status(item_id, "failed")
+            result = RouteResult(
+                route_name="__failed__",
+                destination="",
+                success=False,
+                message=f"Routing failed: {exc}",
+            )
+
+        # Step 7: Embed (best-effort, don't fail on this)
+        try:
+            embedding = self._generate_embedding(content, classification)
+            if embedding and self.store.vec_enabled:
+                self.store._conn.execute(
+                    "INSERT OR REPLACE INTO items_vec(rowid, embedding) VALUES (?, ?)",
+                    (item_id, embedding),
+                )
+                self.store._conn.commit()
+        except Exception as exc:
+            logger.warning("Embedding failed for %s (non-fatal): %s", file_path.name, exc)
 
         return result
 

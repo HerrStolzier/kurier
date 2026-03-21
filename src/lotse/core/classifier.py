@@ -4,32 +4,36 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass
 from typing import Any
 
 import litellm
 from litellm import completion
 
-from lotse.core.config import LLMConfig
+from lotse.core.config import LLMConfig, LotseConfig
 
 # Disable LiteLLM telemetry — user data must never leave the system
 litellm.telemetry = False
 
 logger = logging.getLogger(__name__)
 
-CLASSIFICATION_PROMPT = """\
+DEFAULT_CATEGORIES: dict[str, str] = {
+    "rechnung": "invoice, bill, payment request, price list",
+    "vertrag": "contract, lease, agreement, terms",
+    "brief": "letter, correspondence, official notice",
+    "bescheid": "government notice, tax assessment, official decision",
+    "artikel": "article, tutorial, guide, blog post, documentation",
+    "paper": "academic paper, research, study",
+    "code": "source code, script, configuration file",
+    "notiz": "personal note, memo, reminder",
+}
+
+_PROMPT_HEADER = """\
 You are a strict document classifier. Read the content carefully and classify it \
 into exactly ONE of these categories:
 
-- "rechnung" = invoice, bill, payment request, price list
-- "vertrag" = contract, lease, agreement, terms
-- "brief" = letter, correspondence, official notice
-- "bescheid" = government notice, tax assessment, official decision
-- "artikel" = article, tutorial, guide, blog post, documentation
-- "paper" = academic paper, research, study
-- "code" = source code, script, configuration file
-- "notiz" = personal note, memo, reminder
-
+{category_lines}
 Choose the MOST SPECIFIC category. An invoice is "rechnung", not "vertrag".
 A tutorial is "artikel", not "code" (even if it contains code examples).
 
@@ -42,6 +46,12 @@ Content:
 {content}
 ---
 """
+
+
+def _build_prompt(categories: dict[str, str], content: str) -> str:
+    """Build the classification prompt from a categories dict."""
+    lines = "\n".join(f'- "{key}" = {desc}' for key, desc in categories.items())
+    return _PROMPT_HEADER.format(category_lines=lines + "\n\n", content=content)
 
 
 @dataclass
@@ -80,8 +90,17 @@ class Classifier:
 
     _cloud_warning_shown = False
 
-    def __init__(self, config: LLMConfig) -> None:
+    def __init__(self, config: LLMConfig, lotse_config: LotseConfig | None = None) -> None:
         self.config = config
+        self._retries: int = lotse_config.classifier_retries if lotse_config is not None else 3
+        self._timeout: int = lotse_config.classifier_timeout if lotse_config is not None else 30
+
+        # Merge categories: defaults first, config overrides
+        merged: dict[str, str] = dict(DEFAULT_CATEGORIES)
+        if lotse_config is not None and lotse_config.categories:
+            merged.update(lotse_config.categories)
+        self._categories: dict[str, str] = merged
+
         # LiteLLM requires "ollama_chat/" prefix for Ollama models.
         # Plain "ollama/" uses legacy /api/generate which drops messages.
         if config.provider == "ollama":
@@ -103,35 +122,47 @@ class Classifier:
     def classify(self, content: str, max_chars: int = 4000) -> Classification:
         """Classify text content and return structured result."""
         truncated = content[:max_chars]
+        prompt = _build_prompt(self._categories, truncated)
 
-        try:
-            kwargs: dict[str, Any] = {
-                "model": self._model_id,
-                "messages": [
-                    {"role": "user", "content": CLASSIFICATION_PROMPT.format(content=truncated)}
-                ],
-                "temperature": self.config.temperature,
-                "max_tokens": self.config.max_tokens,
-            }
-            if self.config.base_url:
-                kwargs["api_base"] = self.config.base_url
-            if self.config.api_key:
-                kwargs["api_key"] = self.config.api_key
+        last_exc: Exception = Exception("no attempts made")
 
-            response = completion(**kwargs)
-            raw = response.choices[0].message.content or ""
+        for attempt in range(self._retries):
+            try:
+                kwargs: dict[str, Any] = {
+                    "model": self._model_id,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": self.config.temperature,
+                    "max_tokens": self.config.max_tokens,
+                    "timeout": self._timeout,
+                }
+                if self.config.base_url:
+                    kwargs["api_base"] = self.config.base_url
+                if self.config.api_key:
+                    kwargs["api_key"] = self.config.api_key
 
-            # Extract JSON from response (handle markdown code blocks)
-            raw = raw.strip()
-            if raw.startswith("```"):
-                raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
+                response = completion(**kwargs)
+                raw = response.choices[0].message.content or ""
 
-            data = json.loads(raw)
-            return Classification.from_dict(data)
+                # Extract JSON from response (handle markdown code blocks)
+                raw = raw.strip()
+                if raw.startswith("```"):
+                    raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
 
-        except json.JSONDecodeError as e:
-            logger.warning("Failed to parse LLM response as JSON: %s", e)
-            return Classification.low_confidence(f"JSON parse error: {e}")
-        except Exception as e:
-            logger.error("Classification failed: %s", e)
-            return Classification.low_confidence(str(e))
+                data = json.loads(raw)
+                return Classification.from_dict(data)
+
+            except json.JSONDecodeError as e:
+                logger.warning("Failed to parse LLM response as JSON: %s", e)
+                return Classification.low_confidence(f"JSON parse error: {e}")
+            except Exception as e:
+                last_exc = e
+                logger.warning(
+                    "LLM call failed (attempt %d/%d): %s",
+                    attempt + 1,
+                    self._retries,
+                    e,
+                )
+                if attempt < self._retries - 1:
+                    time.sleep(3**attempt)
+
+        return Classification.low_confidence(str(last_exc))

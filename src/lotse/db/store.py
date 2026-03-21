@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS items (
     language TEXT,
     route_name TEXT,
     content_text TEXT,  -- original content for re-embedding
+    status TEXT NOT NULL DEFAULT 'routed',  -- pending, routed, failed, undone
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -105,6 +106,7 @@ class Store:
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._migrate_fts_if_needed()
         self._conn.executescript(SCHEMA)
+        self._migrate_status_column_if_needed()
 
         # Try to enable vector search
         self._vec_enabled = _load_sqlite_vec(self._conn)
@@ -132,6 +134,17 @@ class Store:
         except Exception as e:
             logger.debug("FTS migration check: %s", e)
 
+    def _migrate_status_column_if_needed(self) -> None:
+        """Add status column to items table if it doesn't exist yet (existing DBs)."""
+        try:
+            self._conn.execute("ALTER TABLE items ADD COLUMN status TEXT NOT NULL DEFAULT 'routed'")
+            self._conn.commit()
+            logger.info("Migrated items table: added status column")
+        except sqlite3.OperationalError as e:
+            # Column already exists — that's fine
+            if "duplicate column name" not in str(e).lower():
+                logger.debug("Status column migration: %s", e)
+
     @property
     def vec_enabled(self) -> bool:
         return self._vec_enabled
@@ -148,14 +161,15 @@ class Store:
         route_name: str,
         content_text: str = "",
         embedding: bytes | None = None,
+        status: str = "routed",
     ) -> int:
         """Record a processed item. Returns the item ID."""
         cursor = self._conn.execute(
             """INSERT INTO items (
                 original_path, destination, category, confidence,
                 summary, tags, language, route_name, content_text,
-                created_at
-               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                status, created_at
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 original_path,
                 destination,
@@ -166,6 +180,7 @@ class Store:
                 language,
                 route_name,
                 content_text,
+                status,
                 datetime.now(UTC).isoformat(),
             ),
         )
@@ -293,6 +308,50 @@ class Store:
 
     def recent(self, limit: int = 20) -> list[dict[str, Any]]:
         """Get most recently processed items."""
+        cursor = self._conn.execute(
+            "SELECT * FROM items ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def update_status(self, item_id: int, status: str) -> None:
+        """Update the status of an item."""
+        self._conn.execute(
+            "UPDATE items SET status = ? WHERE id = ?",
+            (status, item_id),
+        )
+        self._conn.commit()
+
+    def undo_item(self, item_id: int) -> dict[str, Any] | None:
+        """Get item info for undo (original_path, destination). Returns None if not found."""
+        row = self._conn.execute(
+            "SELECT id, original_path, destination FROM items WHERE id = ?",
+            (item_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def delete_item(self, item_id: int) -> None:
+        """Delete an item from DB (for undo)."""
+        self._conn.execute("DELETE FROM items WHERE id = ?", (item_id,))
+        if self._vec_enabled:
+            self._conn.execute("DELETE FROM items_vec WHERE rowid = ?", (item_id,))
+        self._conn.commit()
+
+    def get_all_items(self, category: str | None = None) -> list[dict[str, Any]]:
+        """Get all items, optionally filtered by category."""
+        if category is not None:
+            cursor = self._conn.execute(
+                "SELECT * FROM items WHERE category = ? ORDER BY created_at DESC",
+                (category,),
+            )
+        else:
+            cursor = self._conn.execute(
+                "SELECT * FROM items ORDER BY created_at DESC",
+            )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def get_recent(self, limit: int = 1) -> list[dict[str, Any]]:
+        """Get most recent items."""
         cursor = self._conn.execute(
             "SELECT * FROM items ORDER BY created_at DESC LIMIT ?",
             (limit,),

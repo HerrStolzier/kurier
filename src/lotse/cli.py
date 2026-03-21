@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import csv
+import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
 
 if TYPE_CHECKING:
     from lotse.core.auditor import AuditReport
@@ -366,6 +368,7 @@ def init(
         )
         path.write_text(default_config)
         console.print(f"[green]✓[/green] Config created: {path}")
+        _post_init_checks(path)
         return
 
     from lotse.setup_wizard import run_wizard
@@ -375,42 +378,179 @@ def init(
         console.print("[red]Setup cancelled.[/red]")
         raise typer.Exit(1)
 
+    _post_init_checks(path)
+
+
+def _post_init_checks(config_path: Path) -> None:
+    """Run post-init checks: Ollama, route dirs, test classification."""
+    import urllib.error
+    import urllib.request
+
+    console.print()
+
+    # Load config for route dirs and LLM settings
+    try:
+        cfg = LotseConfig.load(config_path)
+    except Exception:
+        return
+
+    # Create route directories
+    for _name, route in cfg.routes.items():
+        if route.path:
+            route_path = Path(route.path).expanduser()
+            route_path.mkdir(parents=True, exist_ok=True)
+            console.print(f"[dim]Route-Verzeichnis erstellt:[/dim] {route_path}")
+
+    # Check Ollama
+    ollama_url = (cfg.llm.base_url or "http://localhost:11434").rstrip("/")
+    ollama_running = False
+    try:
+        with urllib.request.urlopen(f"{ollama_url}/api/tags", timeout=3) as resp:
+            data = json.loads(resp.read())
+            models = [m["name"] for m in data.get("models", [])]
+            ollama_running = True
+    except Exception:
+        models = []
+
+    if ollama_running:
+        console.print(f"[green]✓[/green] Ollama läuft ({ollama_url})")
+        if models:
+            console.print(f"[dim]Verfügbare Modelle:[/dim] {', '.join(models[:5])}")
+        else:
+            console.print(
+                "[yellow]Keine Modelle gefunden. Lade eines: ollama pull qwen2.5:7b[/yellow]"
+            )
+
+        # Test classification with sample text
+        console.print("\n[dim]Teste Klassifikation...[/dim]")
+        try:
+            from lotse.core.engine import Engine
+
+            engine = Engine(cfg)
+            sample = "Dies ist eine Rechnung über 42,00 EUR von der Stadtwerke GmbH."
+            result = engine.ingest_text(sample, name="init-test")
+            if result.success:
+                console.print(f"[green]✓[/green] Test-Klassifikation: {result.message}")
+            else:
+                console.print(f"[yellow]Test-Klassifikation:[/yellow] {result.message}")
+        except Exception as e:
+            console.print(f"[yellow]Test-Klassifikation fehlgeschlagen:[/yellow] {e}")
+    else:
+        console.print(
+            "[yellow]Ollama nicht gefunden.[/yellow] "
+            "Installiere es von [link]https://ollama.com[/link]"
+        )
+
 
 @app.command()
 def doctor(
     config: Path | None = typer.Option(None, "--config", "-c"),
 ) -> None:
-    """Check system health and LLM availability."""
-    from lotse.setup_wizard import _check_system, _print_system_info
+    """Systemzustand prüfen — Config, Routen, LLM, Datenbank."""
+    import tomllib
+    import urllib.error
+    import urllib.request
 
-    sys_info = _check_system()
-    _print_system_info(sys_info)
-
-    # Check config
     config_path = config or DEFAULT_CONFIG_FILE
-    if config_path.exists():
-        console.print(f"[green]Config:[/green] {config_path}")
-        cfg = _get_config(config)
 
-        # Check LLM connectivity
-        console.print(f"[dim]LLM:[/dim] {cfg.llm.provider}/{cfg.llm.model}")
-        if cfg.llm.provider == "ollama":
-            if sys_info["ollama_running"]:
-                if cfg.llm.model in [m.split(":")[0] for m in sys_info["ollama_models"]]:
-                    console.print(f"[green]Model '{cfg.llm.model}' available.[/green]")
-                else:
-                    available = ", ".join(sys_info["ollama_models"][:5]) or "none"
-                    console.print(
-                        f"[red]Model '{cfg.llm.model}' not found.[/red]\n"
-                        f"[dim]Available: {available}[/dim]\n"
-                        f"[dim]Pull it: ollama pull {cfg.llm.model}[/dim]"
-                    )
-            else:
-                console.print("[red]Ollama not running.[/red] Start with: ollama serve")
-        else:
-            console.print("[dim](Cloud provider — API key must be set as env var)[/dim]")
+    check_table = Table(title="Lotse Doctor", show_header=True, border_style="dim")
+    check_table.add_column("Status", width=4)
+    check_table.add_column("Prüfung")
+    check_table.add_column("Details", style="dim")
+
+    def ok(label: str, detail: str = "") -> None:
+        check_table.add_row("[green]✓[/green]", label, detail)
+
+    def warn(label: str, detail: str = "") -> None:
+        check_table.add_row("[yellow]![/yellow]", label, detail)
+
+    def fail(label: str, detail: str = "") -> None:
+        check_table.add_row("[red]✗[/red]", label, detail)
+
+    # Check 1: Config file exists and is valid TOML
+    if config_path.exists():
+        try:
+            with open(config_path, "rb") as f:
+                tomllib.load(f)
+            ok("Config-Datei", str(config_path))
+            cfg_valid = True
+        except Exception as e:
+            fail("Config-Datei", f"Ungültiges TOML: {e}")
+            cfg_valid = False
     else:
-        console.print("[yellow]No config found.[/yellow] Run: lotse init")
+        fail("Config-Datei", f"Nicht gefunden: {config_path}")
+        cfg_valid = False
+
+    cfg = None
+    if cfg_valid:
+        try:
+            cfg = LotseConfig.load(config_path)
+        except Exception as e:
+            fail("Config laden", str(e))
+            cfg_valid = False
+
+    # Check 2: Route paths exist
+    if cfg is not None:
+        for name, route in cfg.routes.items():
+            if route.path:
+                rp = Path(route.path).expanduser()
+                if rp.exists():
+                    ok(f"Route '{name}'", str(rp))
+                else:
+                    warn(f"Route '{name}'", f"Verzeichnis fehlt: {rp}  (lotse init erstellt es)")
+
+    # Check 3: LLM reachable
+    if cfg is not None:
+        if cfg.llm.provider == "ollama":
+            ollama_url = (cfg.llm.base_url or "http://localhost:11434").rstrip("/")
+            try:
+                with urllib.request.urlopen(f"{ollama_url}/api/tags", timeout=3) as resp:
+                    data = json.loads(resp.read())
+                    models = [m["name"] for m in data.get("models", [])]
+                model_names_base = [m.split(":")[0] for m in models]
+                if cfg.llm.model in models or cfg.llm.model in model_names_base:
+                    ok("LLM erreichbar", f"{cfg.llm.provider}/{cfg.llm.model}")
+                else:
+                    available = ", ".join(models[:3]) or "-"
+                    warn(
+                        "LLM-Modell fehlt",
+                        f"'{cfg.llm.model}' nicht gefunden. Verfügbar: {available}",
+                    )
+            except Exception as e:
+                fail("LLM erreichbar", f"Ollama nicht erreichbar: {e}")
+        else:
+            ok("LLM", f"{cfg.llm.provider} (API-Key via Env-Var)")
+
+    # Check 4: Custom categories have descriptions (if defined)
+    if cfg is not None and cfg.categories:
+        empty_cats = [name for name, desc in cfg.categories.items() if not desc or not desc.strip()]
+        if empty_cats:
+            warn("Kategorie-Beschreibungen", f"Leer bei: {', '.join(empty_cats)}")
+        else:
+            ok("Kategorie-Beschreibungen", "Alle vorhanden")
+
+    # Check 5: Pending/failed items in DB
+    if cfg is not None and cfg.database.path.exists():
+        try:
+            from lotse.db.store import Store
+
+            store = Store(cfg.database.path)
+            all_items = store.get_all_items()
+            pending = sum(1 for it in all_items if it.get("status") == "pending")
+            failed = sum(1 for it in all_items if it.get("status") == "failed")
+            if pending or failed:
+                warn(
+                    "DB-Status",
+                    f"{pending} ausstehend, {failed} fehlgeschlagen (von {len(all_items)} gesamt)",
+                )
+            else:
+                ok("DB-Status", f"{len(all_items)} Einträge, keine Fehler")
+        except Exception as e:
+            warn("Datenbank", str(e))
+    elif cfg is not None:
+        ok("Datenbank", "Noch leer (kein Element verarbeitet)")
+
+    console.print(check_table)
 
 
 @app.command()
@@ -613,6 +753,127 @@ def plugins() -> None:
 
     for name in plugin_list:
         console.print(f"  [green]●[/green] {name}")
+
+
+@app.command()
+def undo(
+    item_id: Annotated[int | None, typer.Option("--id", help="Specific item ID to undo")] = None,
+    config: Annotated[Path | None, typer.Option("--config", "-c")] = None,
+) -> None:
+    """Routing einer Datei rückgängig machen — verschiebt sie zurück zum Ursprungsort."""
+    from lotse.db.store import Store
+
+    cfg = _get_config(config)
+
+    if not cfg.database.path.exists():
+        console.print("[dim]Keine verarbeiteten Einträge gefunden.[/dim]")
+        raise typer.Exit(1)
+
+    store = Store(cfg.database.path)
+
+    if item_id is not None:
+        item = store.undo_item(item_id)
+        if item is None:
+            console.print(f"[red]Kein Eintrag mit ID {item_id} gefunden.[/red]")
+            raise typer.Exit(1)
+        items = [item]
+    else:
+        recent = store.get_recent(limit=1)
+        if not recent:
+            console.print("[dim]Keine Einträge vorhanden.[/dim]")
+            raise typer.Exit(1)
+        item = store.undo_item(recent[0]["id"])
+        if item is None:
+            console.print("[red]Letzten Eintrag konnte nicht geladen werden.[/red]")
+            raise typer.Exit(1)
+        items = [item]
+
+    for it in items:
+        iid = it["id"]
+        dest = Path(it["destination"]) if it["destination"] else None
+        orig = Path(it["original_path"])
+
+        if dest is None or not dest.exists():
+            console.print(f"[yellow]Datei nicht mehr vorhanden:[/yellow] {dest}")
+            store.update_status(iid, "undone")
+            console.print(f"[dim]Status auf 'undone' gesetzt (ID {iid}).[/dim]")
+            continue
+
+        if orig.exists():
+            console.print(f"[yellow]Zielpfad bereits belegt:[/yellow] {orig}")
+            console.print("[dim]Datei nicht verschoben. Status bleibt unverändert.[/dim]")
+            continue
+
+        orig.parent.mkdir(parents=True, exist_ok=True)
+        dest.rename(orig)
+        store.update_status(iid, "undone")
+        console.print(f"[green]✓[/green] Zurückverschoben: {dest.name} → {orig}")
+
+
+@app.command()
+def export(
+    format: Annotated[str, typer.Option("--format", "-f", help="Output format")] = "csv",
+    category: Annotated[str | None, typer.Option("--category", "-c")] = None,
+    output: Annotated[Path | None, typer.Option("--output", "-o")] = None,
+    config: Annotated[Path | None, typer.Option("--config")] = None,
+) -> None:
+    """Verarbeitete Einträge als CSV oder JSON exportieren."""
+    from lotse.db.store import Store
+
+    cfg = _get_config(config)
+
+    if not cfg.database.path.exists():
+        console.print("[dim]Keine verarbeiteten Einträge gefunden.[/dim]")
+        raise typer.Exit(1)
+
+    store = Store(cfg.database.path)
+    items = store.get_all_items(category=category)
+
+    if not items:
+        console.print("[dim]Keine Einträge gefunden.[/dim]")
+        return
+
+    fields = [
+        "id",
+        "category",
+        "confidence",
+        "original_path",
+        "destination",
+        "created_at",
+        "status",
+    ]
+
+    if format.lower() == "json":
+        rows = [{f: item.get(f) for f in fields} for item in items]
+        data = json.dumps(rows, indent=2, ensure_ascii=False)
+        if output:
+            output.write_text(data, encoding="utf-8")
+            console.print(f"[green]✓[/green] {len(rows)} Einträge exportiert nach {output}")
+        else:
+            console.print(data)
+    elif format.lower() == "csv":
+        import io
+        import sys
+
+        if output:
+            f_out = output.open("w", newline="", encoding="utf-8")
+        else:
+            f_out = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", newline="")  # type: ignore[assignment]
+
+        try:
+            writer = csv.DictWriter(f_out, fieldnames=fields, extrasaction="ignore")
+            writer.writeheader()
+            for item in items:
+                writer.writerow({f: item.get(f) for f in fields})
+        finally:
+            if output:
+                f_out.close()
+
+        if output:
+            console.print(f"[green]✓[/green] {len(items)} Einträge exportiert nach {output}")
+    else:
+        console.print(f"[red]Unbekanntes Format:[/red] {format} (verwende 'csv' oder 'json')")
+        raise typer.Exit(1)
 
 
 @app.callback()

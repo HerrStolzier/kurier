@@ -69,6 +69,10 @@ class LotseConfig(BaseSettings):
     inbox_dir: Path = DEFAULT_DATA_DIR / "inbox"
     review_dir: Path = DEFAULT_DATA_DIR / "review"
     log_level: str = "INFO"
+    categories: dict[str, str] | None = None
+    watch_max_concurrent: int = 3
+    classifier_retries: int = 3
+    classifier_timeout: int = 30
 
     @classmethod
     def load(cls, config_path: Path | None = None) -> LotseConfig:

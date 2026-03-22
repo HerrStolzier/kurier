@@ -99,12 +99,18 @@ module = [
     "uvicorn.*",
     "fastapi",
     "fastapi.*",
+    "textual",
+    "textual.*",
 ]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["lotse.inlets.api", "lotse.dashboard.routes"]
 disallow_untyped_decorators = false
+
+[[tool.mypy.overrides]]
+module = ["lotse.tui.*"]
+ignore_errors = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,360 @@
+/* Lotse TUI — Minimales Dark Theme */
+
+Screen {
+    background: #0d0d0d;
+    color: #d4d4d4;
+}
+
+/* Logo / Header-Bereich */
+#logo {
+    text-align: center;
+    color: #f5a623;
+    padding: 1 2;
+    text-style: bold;
+}
+
+/* Menü-Container */
+#menu-container {
+    width: 50;
+    height: auto;
+    align: center middle;
+    margin: 1 4;
+}
+
+/* Menü-Titel */
+#menu-title {
+    text-align: center;
+    color: #888888;
+    padding: 0 0 1 0;
+    text-style: italic;
+}
+
+/* Einzelne Menüeinträge */
+.menu-item {
+    padding: 0 2;
+    color: #d4d4d4;
+    height: 1;
+}
+
+.menu-item:hover {
+    background: #1e1e1e;
+    color: #f5a623;
+}
+
+.menu-item.--highlight {
+    background: #1e1e1e;
+    color: #f5a623;
+    text-style: bold;
+}
+
+/* Stats-Leiste */
+#stats-bar {
+    dock: bottom;
+    height: 1;
+    background: #1a1a1a;
+    color: #666666;
+    padding: 0 2;
+}
+
+/* Footer */
+Footer {
+    background: #111111;
+    color: #555555;
+}
+
+/* Meldungsanzeige (Placeholder) */
+#message-area {
+    height: 3;
+    border: solid #2a2a2a;
+    margin: 1 2;
+    padding: 0 1;
+    color: #888888;
+}
+
+/* ---- SearchScreen ---- */
+
+#search-header {
+    padding: 1 2;
+    color: #d4d4d4;
+    background: #111111;
+    text-style: bold;
+}
+
+#search-input {
+    margin: 0 2 1 2;
+    border: solid #f5a623;
+    background: #1a1a1a;
+    color: #d4d4d4;
+    height: 3;
+}
+
+#search-input:focus {
+    border: solid #f5a623;
+    background: #1e1e1e;
+}
+
+#search-empty {
+    margin: 1 2;
+    color: #666666;
+    text-style: italic;
+}
+
+#search-results {
+    margin: 0 2;
+    height: 1fr;
+}
+
+DataTable {
+    background: #0d0d0d;
+    color: #d4d4d4;
+}
+
+DataTable > .datatable--header {
+    background: #1a1a1a;
+    color: #f5a623;
+    text-style: bold;
+}
+
+DataTable > .datatable--cursor {
+    background: #2a2a2a;
+    color: #f5a623;
+}
+
+DataTable > .datatable--even-row {
+    background: #111111;
+}
+
+DataTable > .datatable--odd-row {
+    background: #0d0d0d;
+}
+
+DataTable > .datatable--hover {
+    background: #1e1e1e;
+    color: #f5a623;
+}
+
+/* ---- RecentScreen ---- */
+
+#recent-header {
+    padding: 1 2;
+    color: #d4d4d4;
+    background: #111111;
+    text-style: bold;
+}
+
+#recent-empty {
+    margin: 1 2;
+    color: #666666;
+    text-style: italic;
+}
+
+#recent-table {
+    margin: 0 2;
+    height: 1fr;
+}
+
+#recent-status {
+    dock: bottom;
+    height: 1;
+    background: #1a1a1a;
+    color: #888888;
+    padding: 0 2;
+}
+
+/* ---- WatchScreen ---- */
+
+#watch-header {
+    padding: 1 2;
+    color: #d4d4d4;
+    background: #111111;
+    text-style: bold;
+}
+
+#watch-log {
+    margin: 0 2;
+    height: 1fr;
+    background: #0d0d0d;
+    border: solid #1e1e1e;
+}
+
+#watch-stats {
+    dock: bottom;
+    height: 1;
+    background: #1a1a1a;
+    color: #888888;
+    padding: 0 2;
+}
+
+/* ---- AuditScreen ---- */
+
+#audit-header {
+    padding: 1 2;
+    color: #d4d4d4;
+    background: #111111;
+    text-style: bold;
+}
+
+#audit-empty {
+    margin: 1 2;
+    color: #666666;
+    text-style: italic;
+}
+
+#audit-table {
+    margin: 0 2;
+    height: 1fr;
+}
+
+#audit-status {
+    dock: bottom;
+    height: 1;
+    background: #1a1a1a;
+    color: #888888;
+    padding: 0 2;
+}
+
+/* ---- AuditDetailModal ---- */
+
+AuditDetailModal {
+    align: center middle;
+}
+
+#audit-detail-content {
+    width: 72;
+    height: auto;
+    max-height: 24;
+    background: #1a1a1a;
+    border: solid #f5a623;
+    padding: 2 3;
+    color: #d4d4d4;
+}
+
+/* ---- DetailModal ---- */
+
+DetailModal {
+    align: center middle;
+}
+
+#detail-content {
+    width: 70;
+    height: auto;
+    max-height: 30;
+    background: #1a1a1a;
+    border: solid #f5a623;
+    padding: 2 3;
+    color: #d4d4d4;
+}
+
+/* ---- UndoConfirmModal ---- */
+
+UndoConfirmModal {
+    align: center middle;
+}
+
+#undo-confirm-content {
+    width: 60;
+    height: auto;
+    background: #1a1a1a;
+    border: solid #f5a623;
+    padding: 2 3;
+    color: #d4d4d4;
+}
+
+/* ---- StatsModal ---- */
+
+StatsModal {
+    align: center middle;
+}
+
+#stats-content {
+    width: 60;
+    height: auto;
+    max-height: 35;
+    background: #1a1a1a;
+    border: solid #f5a623;
+    padding: 2 3;
+    color: #d4d4d4;
+}
+
+/* ---- AddFileModal ---- */
+
+AddFileModal {
+    align: center middle;
+}
+
+#add-file-title {
+    width: 64;
+    height: auto;
+    background: #1a1a1a;
+    border: solid #f5a623;
+    padding: 2 3 1 3;
+    color: #d4d4d4;
+}
+
+#add-file-input {
+    width: 64;
+    background: #1e1e1e;
+    border: solid #f5a623;
+    color: #d4d4d4;
+    height: 3;
+    margin: 0;
+}
+
+#add-file-input:focus {
+    border: solid #f5a623;
+    background: #222222;
+}
+
+#add-file-btn {
+    width: 64;
+    margin: 0;
+    background: #f5a623;
+    color: #0d0d0d;
+}
+
+#add-file-btn:hover {
+    background: #e09820;
+}
+
+#add-file-status {
+    width: 64;
+    height: auto;
+    min-height: 1;
+    background: #1a1a1a;
+    border: solid #f5a623;
+    padding: 1 3;
+    color: #d4d4d4;
+}
+
+/* ---- DoctorModal ---- */
+
+DoctorModal {
+    align: center middle;
+}
+
+#doctor-title {
+    width: 72;
+    background: #1a1a1a;
+    border: solid #f5a623;
+    padding: 2 3 1 3;
+    color: #f5a623;
+    text-style: bold;
+}
+
+#doctor-content {
+    width: 72;
+    height: auto;
+    max-height: 25;
+    background: #1a1a1a;
+    border: solid #2a2a2a;
+    padding: 1 3;
+    color: #d4d4d4;
+}
+
+#doctor-footer {
+    width: 72;
+    background: #1a1a1a;
+    border: solid #f5a623;
+    padding: 1 3 2 3;
+    color: #666666;
+}

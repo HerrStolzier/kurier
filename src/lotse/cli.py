@@ -876,6 +876,22 @@ def export(
         raise typer.Exit(1)
 
 
+@app.command()
+def tui(
+    config: Annotated[Path | None, typer.Option("--config", "-c")] = None,
+) -> None:
+    """Interaktive Terminal-Oberfläche starten."""
+    try:
+        from lotse.tui.app import LotseApp
+    except ImportError:
+        console.print("[red]Textual nicht installiert.[/red]")
+        console.print("Installiere mit: pip install 'lotse[tui]'")
+        raise typer.Exit(1) from None
+    cfg = _get_config(config)
+    lotse_app = LotseApp(cfg)
+    lotse_app.run()
+
+
 @app.callback()
 def main(
     version: bool = typer.Option(False, "--version", "-V", help="Show version"),

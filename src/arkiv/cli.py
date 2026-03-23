@@ -343,40 +343,53 @@ def init(
         console.print("[dim]Delete it first or edit manually.[/dim]")
         raise typer.Exit(1)
 
+    # Ask for inbox directory
+    default_inbox = str(Path.home() / "Documents" / "Kurier" / "Eingang")
     if quick:
-        # Quick mode: write defaults without wizard
-        DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        default_config = (
-            "# Arkiv Configuration\n"
-            "# https://github.com/HerrStolzier/lotse\n\n"
-            '[llm]\nprovider = "ollama"\nmodel = "qwen2.5:7b"\n'
-            'base_url = "http://localhost:11434"\ntemperature = 0.1\n\n'
-            '[embeddings]\nmodel = "BAAI/bge-small-en-v1.5"\n\n'
-            '[database]\npath = "~/.local/share/arkiv/arkiv.db"\n\n'
-            '[routes.archiv]\ntype = "folder"\n'
-            'path = "~/Documents/Arkiv/Archiv"\n'
-            'categories = ["rechnung", "vertrag", "brief", "bescheid"]\n'
-            "confidence_threshold = 0.7\n\n"
-            '[routes.artikel]\ntype = "folder"\n'
-            'path = "~/Documents/Arkiv/Artikel"\n'
-            'categories = ["artikel", "paper", "tutorial", "dokumentation"]\n'
-            "confidence_threshold = 0.6\n\n"
-            '[routes.code]\ntype = "folder"\n'
-            'path = "~/Documents/Arkiv/Code"\n'
-            'categories = ["code", "config", "script"]\n'
-            "confidence_threshold = 0.6\n"
+        inbox_dir = default_inbox
+    else:
+        inbox_dir = typer.prompt(
+            "Eingangs-Ordner (hier Dateien ablegen zum Sortieren)",
+            default=default_inbox,
         )
-        path.write_text(default_config)
-        console.print(f"[green]✓[/green] Config created: {path}")
+
+    inbox_path = Path(inbox_dir).expanduser()
+    inbox_path.mkdir(parents=True, exist_ok=True)
+
+    base_dir = inbox_path.parent  # ~/Documents/Kurier/
+    review_dir = base_dir / "Prüfen"
+    review_dir.mkdir(parents=True, exist_ok=True)
+
+    DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    default_config = (
+        "# Kurier Configuration\n"
+        "# https://github.com/HerrStolzier/lotse\n\n"
+        '[llm]\nprovider = "ollama"\nmodel = "qwen2.5:7b"\n'
+        'base_url = "http://localhost:11434"\ntemperature = 0.1\n\n'
+        '[embeddings]\nmodel = "BAAI/bge-small-en-v1.5"\n\n'
+        '[database]\npath = "~/.local/share/arkiv/arkiv.db"\n\n'
+        f'inbox_dir = "{inbox_dir}"\n'
+        f'review_dir = "{review_dir}"\n\n'
+        '[routes.archiv]\ntype = "folder"\n'
+        f'path = "{base_dir}/Archiv"\n'
+        'categories = ["rechnung", "vertrag", "brief", "bescheid"]\n'
+        "confidence_threshold = 0.7\n\n"
+        '[routes.artikel]\ntype = "folder"\n'
+        f'path = "{base_dir}/Artikel"\n'
+        'categories = ["artikel", "paper", "tutorial", "dokumentation"]\n'
+        "confidence_threshold = 0.6\n\n"
+        '[routes.code]\ntype = "folder"\n'
+        f'path = "{base_dir}/Code"\n'
+        'categories = ["code", "config", "script"]\n'
+        "confidence_threshold = 0.6\n"
+    )
+    path.write_text(default_config)
+    console.print(f"\n[green]✓[/green] Config erstellt: {path}")
+    console.print(f"[green]✓[/green] Eingangs-Ordner: {inbox_path}")
+
+    if not quick:
         _post_init_checks(path)
-        return
-
-    from arkiv.setup_wizard import run_wizard
-
-    success = run_wizard()
-    if not success:
-        console.print("[red]Setup cancelled.[/red]")
-        raise typer.Exit(1)
+    return
 
     _post_init_checks(path)
 

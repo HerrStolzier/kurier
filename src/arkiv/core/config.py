@@ -67,8 +67,8 @@ class ArkivConfig(BaseSettings):
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     audit: AuditConfig = Field(default_factory=AuditConfig)
     routes: dict[str, RouteConfig] = Field(default_factory=dict)
-    inbox_dir: Path = DEFAULT_DATA_DIR / "inbox"
-    review_dir: Path = DEFAULT_DATA_DIR / "review"
+    inbox_dir: Path = Path.home() / "Documents" / "Kurier" / "Eingang"
+    review_dir: Path = Path.home() / "Documents" / "Kurier" / "Prüfen"
     log_level: str = "INFO"
     categories: dict[str, str] | None = None
     watch_max_concurrent: int = 3

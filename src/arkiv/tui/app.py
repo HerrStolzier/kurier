@@ -1659,15 +1659,36 @@ class SetupWizardScreen(Screen[None]):
     # ------------------------------------------------------------------
 
     def _finish_setup(self) -> None:
-        """Config schreiben und App beenden."""
+        """Config schreiben, Service aktivieren, App beenden."""
         try:
             self._do_write_config()
+
+            # Service automatisch aktivieren
+            service_msg = ""
+            try:
+                from arkiv import service
+
+                success, msg = service.install()
+                if success:
+                    service_msg = (
+                        "\n[green]✓ Hintergrund-Service aktiviert![/green]"
+                        "\n[dim]Dateien im Eingang werden ab jetzt automatisch sortiert.[/dim]"
+                    )
+                else:
+                    service_msg = f"\n[yellow]Service: {msg}[/yellow]"
+            except Exception as svc_err:
+                service_msg = (
+                    f"\n[dim]Service konnte nicht aktiviert werden: {svc_err}[/dim]"
+                    "\n[dim]Starte manuell mit: kurier service on[/dim]"
+                )
+
             with contextlib.suppress(NoMatches):
                 self.query_one("#wizard-status", Static).update(
-                    "[green]✓ Konfiguration gespeichert![/green]\n"
-                    "[bold]Starte kurier erneut für das Hauptmenü.[/bold]"
+                    "[green]✓ Konfiguration gespeichert![/green]"
+                    f"{service_msg}\n\n"
+                    "[bold]Kurier ist bereit![/bold]"
                 )
-            self.set_timer(1.5, lambda: self.app.exit())
+            self.set_timer(3.0, lambda: self.app.exit())
         except Exception as exc:
             with contextlib.suppress(NoMatches):
                 self.query_one("#wizard-status", Static).update(f"[red]Fehler: {exc}[/red]")

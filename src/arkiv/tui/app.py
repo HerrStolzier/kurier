@@ -1657,17 +1657,18 @@ class SetupWizardScreen(Screen[None]):
     # ------------------------------------------------------------------
 
     def _finish_setup(self) -> None:
-        """Config schreiben und zu HomeScreen wechseln."""
-        status = self.query_one("#wizard-status", Static)
-        status.update("[dim]Schreibe Konfiguration...[/dim]")
-        threading.Thread(target=self._write_config_and_launch, daemon=True).start()
-
-    def _write_config_and_launch(self) -> None:
+        """Config schreiben und App beenden."""
         try:
             self._do_write_config()
-            self.call_from_thread(self._on_setup_complete)
+            with contextlib.suppress(NoMatches):
+                self.query_one("#wizard-status", Static).update(
+                    "[green]✓ Konfiguration gespeichert![/green]\n"
+                    "[bold]Starte kurier erneut für das Hauptmenü.[/bold]"
+                )
+            self.set_timer(1.5, lambda: self.app.exit())
         except Exception as exc:
-            self.call_from_thread(self._on_setup_error, str(exc))
+            with contextlib.suppress(NoMatches):
+                self.query_one("#wizard-status", Static).update(f"[red]Fehler: {exc}[/red]")
 
     def _do_write_config(self) -> None:
         """Config-Datei schreiben und Verzeichnisse anlegen."""
@@ -1710,27 +1711,6 @@ class SetupWizardScreen(Screen[None]):
         # Verzeichnisse anlegen
         for d in (self._inbox_path, review_dir, home / "Documents" / "Kurier" / "Archiv"):
             d.mkdir(parents=True, exist_ok=True)
-
-    def _on_setup_complete(self) -> None:
-        """Config erfolgreich geschrieben — zu HomeScreen wechseln."""
-        from arkiv.core.config import ArkivConfig
-
-        try:
-            config = ArkivConfig.load()
-        except Exception:
-            config = None
-
-        # HomeScreen aktualisieren und Wizard schließen
-        app = self.app
-        if isinstance(app, HomeScreen):
-            app._config = config  # type: ignore[attr-defined]
-        self.dismiss()
-
-    def _on_setup_error(self, error: str) -> None:
-        with contextlib.suppress(NoMatches):
-            self.query_one("#wizard-status", Static).update(
-                f"[red]Fehler beim Schreiben der Config:[/red] {error}"
-            )
 
 
 # ---------------------------------------------------------------------------

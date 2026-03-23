@@ -106,7 +106,7 @@ plugins/arkiv-webhook/     # First-party plugin: webhook routes (Slack, Discord,
 
 ## Config
 
-TOML at `~/.config/arkiv/config.toml`. Run `kurier init` for interactive wizard (TUI), `kurier init --quick` for defaults.
+TOML at `~/.config/kurier/config.toml`. Run `kurier init` for interactive wizard (TUI), `kurier init --quick` for defaults.
 
 Key sections:
 - `[llm]` — provider, model, base_url, temperature

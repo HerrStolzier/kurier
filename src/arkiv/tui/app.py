@@ -1716,7 +1716,7 @@ class SetupWizardScreen(Screen[None]):
             'model = "BAAI/bge-small-en-v1.5"',
             "",
             "[database]",
-            'path = "~/.local/share/arkiv/arkiv.db"',
+            'path = "~/.local/share/kurier/kurier.db"',
             "",
             f'inbox_dir = "{self._inbox_path}"',
             f'review_dir = "{review_dir}"',

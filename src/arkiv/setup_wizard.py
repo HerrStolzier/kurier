@@ -515,7 +515,7 @@ def _write_config(llm_config: dict[str, Any], routes: dict[str, Any]) -> None:
             'model = "BAAI/bge-small-en-v1.5"',
             "",
             "[database]",
-            'path = "~/.local/share/arkiv/arkiv.db"',
+            'path = "~/.local/share/kurier/kurier.db"',
             "",
         ]
     )

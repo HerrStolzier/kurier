@@ -66,7 +66,7 @@ kurier init                    # Interactive setup wizard
 
 ## Configuration
 
-Arkiv uses a TOML config file at `~/.config/arkiv/config.toml`:
+Kurier uses a TOML config file at `~/.config/kurier/config.toml`:
 
 ```toml
 [llm]

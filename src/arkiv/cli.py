@@ -526,7 +526,7 @@ def init(
         '[llm]\nprovider = "ollama"\nmodel = "qwen2.5:7b"\n'
         'base_url = "http://localhost:11434"\ntemperature = 0.1\n\n'
         '[embeddings]\nmodel = "BAAI/bge-small-en-v1.5"\n\n'
-        '[database]\npath = "~/.local/share/arkiv/arkiv.db"\n\n'
+        '[database]\npath = "~/.local/share/kurier/kurier.db"\n\n'
         f'inbox_dir = "{inbox_dir}"\n'
         f'review_dir = "{review_dir}"\n\n'
         '[routes.archiv]\ntype = "folder"\n'

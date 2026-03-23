@@ -10,8 +10,8 @@ from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 
 # XDG-style defaults
-DEFAULT_CONFIG_DIR = Path.home() / ".config" / "arkiv"
-DEFAULT_DATA_DIR = Path.home() / ".local" / "share" / "arkiv"
+DEFAULT_CONFIG_DIR = Path.home() / ".config" / "kurier"
+DEFAULT_DATA_DIR = Path.home() / ".local" / "share" / "kurier"
 DEFAULT_CONFIG_FILE = DEFAULT_CONFIG_DIR / "config.toml"
 
 
@@ -36,7 +36,7 @@ class EmbeddingConfig(BaseModel):
 class DatabaseConfig(BaseModel):
     """Database configuration."""
 
-    path: Path = DEFAULT_DATA_DIR / "arkiv.db"
+    path: Path = DEFAULT_DATA_DIR / "kurier.db"
     store_content: bool = True  # Store document text in DB (disable for max privacy)
 
 

@@ -546,6 +546,10 @@ def init(
     console.print(f"\n[green]✓[/green] Config erstellt: {path}")
     console.print(f"[green]✓[/green] Eingangs-Ordner: {inbox_path}")
 
+    for route_name in ["Archiv", "Artikel", "Code"]:
+        route_dir = base_dir / route_name
+        route_dir.mkdir(parents=True, exist_ok=True)
+
     if not quick:
         _post_init_checks(path)
     return
@@ -669,7 +673,7 @@ def doctor(
                 if rp.exists():
                     ok(f"Route '{name}'", str(rp))
                 else:
-                    warn(f"Route '{name}'", f"Verzeichnis fehlt: {rp}  (arkiv init erstellt es)")
+                    warn(f"Route '{name}'", f"Verzeichnis fehlt: {rp}  (kurier init erstellt es)")
 
     # Check 3: LLM reachable
     if cfg is not None:

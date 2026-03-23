@@ -38,7 +38,7 @@ Choose the MOST SPECIFIC category. An invoice is "rechnung", not "vertrag".
 A tutorial is "artikel", not "code" (even if it contains code examples).
 
 Return ONLY a JSON object (no other text, no markdown):
-{{"category": "...", "confidence": 0.0-1.0, \
+{{"category": "...", "confidence": <float 0.0-1.0, 0.5=ambiguous, 0.9+=certain>, \
 "summary": "one line in document language", "tags": ["..."], "language": "de or en", \
 "suggested_filename": "kurzer deutscher Dateiname, max 5 Wörter, \
 beschreibt den Inhalt so dass man die Datei in 6 Monaten wiederfindet. \
@@ -72,9 +72,13 @@ class Classification:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Classification:
+        try:
+            confidence = float(data.get("confidence", 0.0))
+        except (TypeError, ValueError):
+            confidence = 0.0
         return cls(
             category=data.get("category", "unknown"),
-            confidence=float(data.get("confidence", 0.0)),
+            confidence=confidence,
             summary=data.get("summary", ""),
             tags=data.get("tags", []),
             language=data.get("language", "unknown"),

@@ -222,6 +222,7 @@ class Store:
                FROM items_fts
                JOIN items ON items.id = items_fts.rowid
                WHERE items_fts MATCH ?
+               AND items.status != 'undone'
                ORDER BY rank
                LIMIT ?""",
             (query, limit),
@@ -268,6 +269,7 @@ class Store:
                FROM items_fts
                JOIN items ON items.id = items_fts.rowid
                WHERE items_fts MATCH ?
+               AND items.status != 'undone'
                ORDER BY rank
                LIMIT ?""",
             (query, fetch_count),
@@ -338,15 +340,16 @@ class Store:
         self._conn.commit()
 
     def get_all_items(self, category: str | None = None) -> list[dict[str, Any]]:
-        """Get all items, optionally filtered by category."""
+        """Get all items, optionally filtered by category. Excludes undone items."""
         if category is not None:
             cursor = self._conn.execute(
-                "SELECT * FROM items WHERE category = ? ORDER BY created_at DESC",
+                "SELECT * FROM items WHERE category = ?"
+                " AND status != 'undone' ORDER BY created_at DESC",
                 (category,),
             )
         else:
             cursor = self._conn.execute(
-                "SELECT * FROM items ORDER BY created_at DESC",
+                "SELECT * FROM items WHERE status != 'undone' ORDER BY created_at DESC",
             )
         return [dict(row) for row in cursor.fetchall()]
 

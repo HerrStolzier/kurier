@@ -1075,7 +1075,7 @@ def main(
 ) -> None:
     """Kurier — your AI-powered data pilot."""
     if version:
-        console.print(f"arkiv {__version__}")
+        console.print(f"kurier {__version__}")
         raise typer.Exit()
     if ctx.invoked_subcommand is None:
         # Kein Subcommand → TUI starten

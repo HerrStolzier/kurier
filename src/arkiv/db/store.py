@@ -209,11 +209,13 @@ class Store:
         with Reciprocal Rank Fusion to combine keyword + semantic results.
         """
         if mode == "vec" and query_embedding and self._vec_enabled:
-            return self._search_vec(query_embedding, limit)
+            results = self._search_vec(query_embedding, limit)
         elif mode == "fts" or not query_embedding or not self._vec_enabled:
-            return self._search_fts(query, limit)
+            results = self._search_fts(query, limit)
         else:
-            return self._search_hybrid(query, query_embedding, limit)
+            results = self._search_hybrid(query, query_embedding, limit)
+        # Final safety filter — no undone items should appear in any search path
+        return [r for r in results if r.get("status") != "undone"]
 
     def _search_fts(self, query: str, limit: int) -> list[dict[str, Any]]:
         """Full-text keyword search."""
@@ -243,7 +245,7 @@ class Store:
         results = []
         for row in vec_results:
             item = self._conn.execute(
-                "SELECT * FROM items WHERE id = ?", (row["rowid"],)
+                "SELECT * FROM items WHERE id = ? AND status != 'undone'", (row["rowid"],)
             ).fetchone()
             if item:
                 d = dict(item)
@@ -301,7 +303,9 @@ class Store:
 
         results = []
         for doc_id in top_ids:
-            item = self._conn.execute("SELECT * FROM items WHERE id = ?", (doc_id,)).fetchone()
+            item = self._conn.execute(
+                "SELECT * FROM items WHERE id = ? AND status != 'undone'", (doc_id,)
+            ).fetchone()
             if item:
                 d = dict(item)
                 d["rrf_score"] = rrf_scores[doc_id]

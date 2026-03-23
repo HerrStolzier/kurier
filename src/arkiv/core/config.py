@@ -6,7 +6,7 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings
 
 # XDG-style defaults
@@ -39,6 +39,11 @@ class DatabaseConfig(BaseModel):
     path: Path = DEFAULT_DATA_DIR / "kurier.db"
     store_content: bool = True  # Store document text in DB (disable for max privacy)
 
+    @field_validator("path", mode="before")
+    @classmethod
+    def expand_path(cls, v: object) -> Path:
+        return Path(v).expanduser() if isinstance(v, str | Path) else v  # type: ignore[arg-type]
+
 
 class RouteConfig(BaseModel):
     """A single route definition."""
@@ -69,6 +74,12 @@ class ArkivConfig(BaseSettings):
     routes: dict[str, RouteConfig] = Field(default_factory=dict)
     inbox_dir: Path = Path.home() / "Documents" / "Kurier" / "Eingang"
     review_dir: Path = Path.home() / "Documents" / "Kurier" / "Prüfen"
+
+    @field_validator("inbox_dir", "review_dir", mode="before")
+    @classmethod
+    def expand_dir(cls, v: object) -> Path:
+        return Path(v).expanduser() if isinstance(v, str | Path) else v  # type: ignore[arg-type]
+
     log_level: str = "INFO"
     categories: dict[str, str] | None = None
     watch_max_concurrent: int = 3

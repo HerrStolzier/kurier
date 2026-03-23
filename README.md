@@ -27,48 +27,42 @@ Lotse takes any digital input — files, URLs, text — classifies it using AI, 
 ## Quick Start
 
 ```bash
-# 1. Create a virtual environment and install
-uv venv lotse-env && source lotse-env/bin/activate
-uv pip install "lotse @ git+https://github.com/HerrStolzier/lotse.git"
+# Install
+pipx install "lotse @ git+https://github.com/HerrStolzier/lotse.git"
 
-# 2. Make sure Ollama is running with a model
+# Make sure Ollama is running with a model
 ollama pull qwen2.5:7b
 
-# 3. Initialize config
-lotse init
-
-# 4. Classify and route a file
-lotse add invoice.pdf
+# Start Lotse
+lotse
 ```
 
-> **Note:** After a terminal restart, reactivate the environment with:
-> `source lotse-env/bin/activate`
+That's it. `lotse` launches the interactive TUI where you can classify files, search, monitor your inbox, and more — all from one interface.
 
-### More Commands
+> **Alternative install methods:**
+> ```bash
+> # With pip (requires a virtual environment)
+> pip install "lotse @ git+https://github.com/HerrStolzier/lotse.git"
+>
+> # With uv
+> uv pip install "lotse @ git+https://github.com/HerrStolzier/lotse.git"
+> ```
+
+### CLI Commands
+
+All features are also available as individual commands:
 
 ```bash
+lotse                         # Interactive TUI (default)
+lotse add invoice.pdf         # Classify and route a file
 lotse watch                   # Auto-process files in inbox
 lotse search "Rechnung"       # Hybrid keyword + semantic search
 lotse status                  # Processing statistics
 lotse undo                    # Undo last routing action
 lotse export --format csv     # Export all items as CSV
 lotse doctor                  # Check system health
-lotse tui                     # Interactive terminal UI (requires lotse[tui])
+lotse init                    # Interactive setup wizard
 ```
-
-## Interactive TUI
-
-Lotse includes an optional interactive terminal interface:
-
-```bash
-# Install with TUI support
-uv pip install "lotse[tui] @ git+https://github.com/HerrStolzier/lotse.git"
-
-# Launch
-lotse tui
-```
-
-Navigate with arrow keys, number keys 1-7, and keyboard shortcuts. Includes live inbox monitoring, search, audit, and undo — all from one interface.
 
 ## Configuration
 

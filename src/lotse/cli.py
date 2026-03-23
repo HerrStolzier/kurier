@@ -892,11 +892,15 @@ def tui(
     lotse_app.run()
 
 
-@app.callback()
+@app.callback(invoke_without_command=True)
 def main(
+    ctx: typer.Context,
     version: bool = typer.Option(False, "--version", "-V", help="Show version"),
 ) -> None:
     """Lotse — your AI-powered data pilot."""
     if version:
         console.print(f"lotse {__version__}")
         raise typer.Exit()
+    if ctx.invoked_subcommand is None:
+        # Kein Subcommand → TUI starten
+        ctx.invoke(tui)

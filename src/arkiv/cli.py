@@ -409,10 +409,11 @@ def _pick_folder(default: str) -> str:
         return picked
 
     # Fallback: Terminal-Eingabe
-    return typer.prompt(
+    result: str = typer.prompt(
         "Eingangs-Ordner (Pfad eingeben)",
         default=default,
     )
+    return result
 
 
 @app.command()

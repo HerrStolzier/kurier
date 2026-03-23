@@ -28,7 +28,7 @@ Arkiv takes any digital input — files, URLs, text — classifies it using AI, 
 
 ```bash
 # Install
-pipx install "arkiv @ git+https://github.com/HerrStolzier/lotse.git"
+pipx install "kurier @ git+https://github.com/HerrStolzier/lotse.git"
 
 # Make sure Ollama is running with a model
 ollama pull qwen2.5:7b
@@ -37,15 +37,15 @@ ollama pull qwen2.5:7b
 arkiv
 ```
 
-That's it. `arkiv` launches the interactive TUI where you can classify files, search, monitor your inbox, and more — all from one interface.
+That's it. `kurier` launches the interactive TUI where you can classify files, search, monitor your inbox, and more — all from one interface.
 
 > **Alternative install methods:**
 > ```bash
 > # With pip (requires a virtual environment)
-> pip install "arkiv @ git+https://github.com/HerrStolzier/lotse.git"
+> pip install "kurier @ git+https://github.com/HerrStolzier/lotse.git"
 >
 > # With uv
-> uv pip install "arkiv @ git+https://github.com/HerrStolzier/lotse.git"
+> uv pip install "kurier @ git+https://github.com/HerrStolzier/lotse.git"
 > ```
 
 ### CLI Commands
@@ -53,15 +53,15 @@ That's it. `arkiv` launches the interactive TUI where you can classify files, se
 All features are also available as individual commands:
 
 ```bash
-arkiv                         # Interactive TUI (default)
-arkiv add invoice.pdf         # Classify and route a file
-arkiv watch                   # Auto-process files in inbox
-arkiv search "Rechnung"       # Hybrid keyword + semantic search
-arkiv status                  # Processing statistics
-arkiv undo                    # Undo last routing action
-arkiv export --format csv     # Export all items as CSV
-arkiv doctor                  # Check system health
-arkiv init                    # Interactive setup wizard
+kurier                         # Interactive TUI (default)
+kurier add invoice.pdf         # Classify and route a file
+kurier watch                   # Auto-process files in inbox
+kurier search "Rechnung"       # Hybrid keyword + semantic search
+kurier status                  # Processing statistics
+kurier undo                    # Undo last routing action
+kurier export --format csv     # Export all items as CSV
+kurier doctor                  # Check system health
+kurier init                    # Interactive setup wizard
 ```
 
 ## Configuration
@@ -107,10 +107,10 @@ Start the API server for external integrations, webhooks, and mobile capture:
 
 ```bash
 # Install API dependencies
-uv pip install "arkiv[api] @ git+https://github.com/HerrStolzier/lotse.git"
+uv pip install "kurier[api] @ git+https://github.com/HerrStolzier/lotse.git"
 
 # Start the server
-arkiv serve
+kurier serve
 # → http://127.0.0.1:8790/docs (Swagger UI)
 ```
 

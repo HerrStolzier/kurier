@@ -22,14 +22,14 @@ ruff check src/ --fix     # auto-fix
 mypy src/arkiv/ --ignore-missing-imports
 
 # Start API + dashboard
-arkiv serve               # http://127.0.0.1:8790/dashboard/
+kurier serve               # http://127.0.0.1:8790/dashboard/
 
 # Audit routing decisions
-arkiv audit               # report only
-arkiv audit --fix         # interactive fix mode
+kurier audit               # report only
+kurier audit --fix         # interactive fix mode
 
 # System health
-arkiv doctor              # check Ollama, RAM, model availability
+kurier doctor              # check Ollama, RAM, model availability
 
 # Plugin tests (separate rootdir to avoid import conflicts)
 pytest --rootdir=plugins/arkiv-webhook --override-ini="testpaths=plugins/arkiv-webhook/tests" plugins/arkiv-webhook/tests/
@@ -82,7 +82,7 @@ plugins/arkiv-webhook/     # First-party plugin: webhook routes (Slack, Discord,
 
 ## Config
 
-TOML at `~/.config/arkiv/config.toml`. Run `arkiv init` for interactive wizard, `arkiv init --quick` for defaults.
+TOML at `~/.config/arkiv/config.toml`. Run `kurier init` for interactive wizard, `kurier init --quick` for defaults.
 
 Key sections:
 - `[llm]` — provider, model, base_url, temperature
@@ -95,9 +95,9 @@ Key sections:
 
 | Extra | What it enables | Install |
 |-------|----------------|---------|
-| `api` | REST API + Dashboard | `pip install arkiv[api]` |
-| `ocr` | PDF/image text extraction | `pip install arkiv[ocr]` + `brew install tesseract` |
-| `dev` | Testing + linting | `pip install arkiv[dev]` |
+| `api` | REST API + Dashboard | `pip install kurier[api]` |
+| `ocr` | PDF/image text extraction | `pip install kurier[ocr]` + `brew install tesseract` |
+| `dev` | Testing + linting | `pip install kurier[dev]` |
 
 ## Ruff
 

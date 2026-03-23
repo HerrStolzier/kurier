@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "arkiv"
+name = "kurier"
 version = "0.2.0"
 description = "Universal capture → classify → route platform. Your AI-powered data pilot."
 readme = "README.md"
@@ -61,7 +61,7 @@ dev = [
 ]
 
 [project.scripts]
-arkiv = "arkiv.cli:app"
+kurier = "arkiv.cli:app"
 
 [project.entry-points."arkiv.plugins"]
 

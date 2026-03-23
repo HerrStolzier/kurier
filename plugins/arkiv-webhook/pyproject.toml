@@ -10,7 +10,7 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
-    "arkiv>=0.2.0",
+    "kurier>=0.2.0",
     "httpx>=0.27.0",
 ]
 

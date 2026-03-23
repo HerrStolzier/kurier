@@ -55,6 +55,21 @@ def run_wizard() -> bool:
             "Consider using a cloud provider (OpenAI, Anthropic) instead."
         )
 
+    if not sys_info["tesseract_installed"]:
+        system = platform.system()
+        install_cmd = (
+            "brew install tesseract"
+            if system == "Darwin"
+            else "sudo apt install tesseract-ocr"
+            if system == "Linux"
+            else "https://github.com/tesseract-ocr/tesseract#installing-tesseract"
+        )
+        console.print(
+            "\n[yellow]Tesseract (OCR) is not installed.[/yellow]\n"
+            "Without it, Lotse cannot extract text from scanned PDFs or images.\n"
+            f"Install with: [bold]{install_cmd}[/bold]\n"
+        )
+
     # Step 2: LLM backend selection
     llm_config = _configure_llm(sys_info)
     if llm_config is None:
@@ -144,7 +159,7 @@ def _detect_ram() -> int:
             c_ulong = ctypes.c_ulong
 
             class MEMORYSTATUS(ctypes.Structure):
-                _fields_ = [
+                _fields_ = [  # noqa: RUF012
                     ("dwLength", c_ulong),
                     ("dwMemoryLoad", c_ulong),
                     ("dwTotalPhys", ctypes.c_uint64),

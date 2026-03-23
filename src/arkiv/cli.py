@@ -21,7 +21,7 @@ from arkiv.core.config import DEFAULT_CONFIG_DIR, DEFAULT_CONFIG_FILE, ArkivConf
 app = typer.Typer(
     name="arkiv",
     help="Universal capture → classify → route. Your AI-powered data pilot.",
-    no_args_is_help=True,
+    no_args_is_help=False,
 )
 console = Console()
 
@@ -903,4 +903,7 @@ def main(
         raise typer.Exit()
     if ctx.invoked_subcommand is None:
         # Kein Subcommand → TUI starten
-        tui()
+        from arkiv.tui.app import ArkivApp
+
+        cfg = _get_config(None)
+        ArkivApp(cfg).run()

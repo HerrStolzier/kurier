@@ -1315,6 +1315,7 @@ class SetupWizardScreen(Screen[None]):
         yield Static("", id="wizard-summary")
         # Fallback: manuelles Eingabefeld
         yield Input(placeholder="Pfad manuell eingeben...", id="wizard-path-input")
+        yield Button("Weiter →", id="wizard-next-btn", variant="success")
         yield Static("", id="wizard-status")
         yield Footer()
 
@@ -1341,6 +1342,8 @@ class SetupWizardScreen(Screen[None]):
         status = self.query_one("#wizard-status", Static)
         status.update("")
 
+        next_btn = self.query_one("#wizard-next-btn", Button)
+
         # Alles ausblenden
         pick_btn.display = False
         path_display.display = False
@@ -1348,6 +1351,7 @@ class SetupWizardScreen(Screen[None]):
         ollama_status.display = False
         summary.display = False
         path_input.display = False
+        next_btn.display = True
 
         # Footer-Bindings je Schritt anpassen
         self._update_footer_bindings()
@@ -1363,12 +1367,13 @@ class SetupWizardScreen(Screen[None]):
             path_display.update(f"[dim]Gewählt:[/dim] [bold]{self._inbox_path}[/bold]")
             path_input.display = True
             path_input.value = str(self._inbox_path)
+            next_btn.label = "Weiter →"
 
         elif self._step == 2:
             content.update(
                 "[bold #f5a623]LLM-Modell wählen[/bold #f5a623]\n\n"
                 "Das Modell klassifiziert deine Dateien automatisch.\n"
-                "[dim]Größere Modelle (7b+) sind genauer, brauchen aber mehr RAM.[/dim]"
+                "[#888888]Größere Modelle (7b+) sind genauer, brauchen aber mehr RAM.[/#888888]\n"
             )
             ollama_status.display = True
             model_list.display = True
@@ -1376,6 +1381,7 @@ class SetupWizardScreen(Screen[None]):
                 self._populate_model_list()
             else:
                 ollama_status.update("[dim]Prüfe Ollama...[/dim]")
+            next_btn.label = "Weiter →"
 
         elif self._step == 3:
             content.update(
@@ -1384,6 +1390,7 @@ class SetupWizardScreen(Screen[None]):
             )
             summary.display = True
             self._render_summary()
+            next_btn.label = "Starten ✓"
 
     def _update_indicator(self) -> None:
         indicator = self.query_one("#wizard-step-indicator", Static)
@@ -1473,9 +1480,14 @@ class SetupWizardScreen(Screen[None]):
                 )
                 for model in models[:10]:
                     desc, rec = _wizard_model_hint(model)
-                    star = " [green]★[/green]" if rec else ""
-                    label = f"{model}{star}  [dim]{desc}[/dim]" if desc else model
-                    model_list.append(ListItem(Label(label), id=f"model-{model.replace(':', '-')}"))
+                    if rec:
+                        label = f"[bold green]{model}[/bold green]  [green]★ {desc}[/green]"
+                    elif desc:
+                        label = f"[bold]{model}[/bold]  [#888888]{desc}[/#888888]"
+                    else:
+                        label = f"[bold]{model}[/bold]"
+                    safe_id = model.replace(":", "-").replace(".", "-")
+                    model_list.append(ListItem(Label(label), id=f"model-{safe_id}"))
                 # Empfohlenes Modell vorauswählen
                 for i, m in enumerate(models[:10]):
                     if m.startswith(_WIZARD_RECOMMENDED):
@@ -1489,16 +1501,24 @@ class SetupWizardScreen(Screen[None]):
                 defaults = ["qwen2.5:7b", "qwen2.5:3b", "qwen2.5:1.5b"]
                 for model in defaults:
                     desc, rec = _wizard_model_hint(model)
-                    star = " [green]★[/green]" if rec else ""
-                    label = f"{model}{star}  [dim]{desc}[/dim]" if desc else model
-                    model_list.append(ListItem(Label(label), id=f"model-{model.replace(':', '-')}"))
+                    if rec:
+                        label = f"[bold green]{model}[/bold green]  [green]★ {desc}[/green]"
+                    elif desc:
+                        label = f"[bold]{model}[/bold]  [#888888]{desc}[/#888888]"
+                    else:
+                        label = f"[bold]{model}[/bold]"
+                    safe_id = model.replace(":", "-").replace(".", "-")
+                    model_list.append(ListItem(Label(label), id=f"model-{safe_id}"))
 
     # ------------------------------------------------------------------
     # Ordner-Picker
     # ------------------------------------------------------------------
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "wizard-pick-folder-btn":
+        """Button-Clicks behandeln."""
+        if event.button.id == "wizard-next-btn":
+            self.action_next_step()
+        elif event.button.id == "wizard-pick-folder-btn":
             threading.Thread(target=self._pick_folder, daemon=True).start()
 
     def _pick_folder(self) -> None:

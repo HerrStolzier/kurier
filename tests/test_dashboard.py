@@ -33,7 +33,7 @@ def test_root_redirects_to_dashboard(client: TestClient) -> None:
 def test_dashboard_loads(client: TestClient) -> None:
     resp = client.get("/dashboard/")
     assert resp.status_code == 200
-    assert "Arkiv" in resp.text
+    assert "Kurier" in resp.text
     assert "htmx" in resp.text
     assert "tailwindcss" in resp.text
 

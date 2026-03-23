@@ -1,4 +1,4 @@
-"""Configuration management for Arkiv."""
+"""Configuration management for Kurier."""
 
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ class AuditConfig(BaseModel):
 
 
 class ArkivConfig(BaseSettings):
-    """Root configuration for Arkiv."""
+    """Root configuration for Kurier."""
 
     llm: LLMConfig = Field(default_factory=LLMConfig)
     embeddings: EmbeddingConfig = Field(default_factory=EmbeddingConfig)

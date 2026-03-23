@@ -1,4 +1,4 @@
-"""Arkiv TUI — Interaktive Terminal-Oberfläche (Iteration 4)."""
+"""Kurier TUI — Interaktive Terminal-Oberfläche (Iteration 4)."""
 
 from __future__ import annotations
 
@@ -217,7 +217,7 @@ class SearchScreen(Screen[None]):
     def compose(self) -> ComposeResult:
         mode_label = SEARCH_MODES[self._mode_index].capitalize()
         yield Static(
-            f"[bold #f5a623]Arkiv — Suche[/bold #f5a623]  [dim]Modus: {mode_label}[/dim]",
+            f"[bold #f5a623]Kurier — Suche[/bold #f5a623]  [dim]Modus: {mode_label}[/dim]",
             id="search-header",
         )
         yield Input(
@@ -350,7 +350,9 @@ class SearchScreen(Screen[None]):
         self._mode_index = (self._mode_index + 1) % len(SEARCH_MODES)
         mode_label = SEARCH_MODES[self._mode_index].capitalize()
         header = self.query_one("#search-header", Static)
-        header.update(f"[bold #f5a623]Arkiv — Suche[/bold #f5a623]  [dim]Modus: {mode_label}[/dim]")
+        header.update(
+            f"[bold #f5a623]Kurier — Suche[/bold #f5a623]  [dim]Modus: {mode_label}[/dim]"
+        )
         # Aktuelle Suche erneut ausführen
         query = self.query_one("#search-input", Input).value.strip()
         if query:
@@ -382,7 +384,7 @@ class RecentScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         yield Static(
-            "[bold #f5a623]Arkiv — Letzte Einträge[/bold #f5a623]  "
+            "[bold #f5a623]Kurier — Letzte Einträge[/bold #f5a623]  "
             "[dim]u=Undo  Enter=Detail  r=Neu laden  ESC=Zurück[/dim]",
             id="recent-header",
         )
@@ -1124,7 +1126,7 @@ class AuditScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         yield Static(
-            "[bold #f5a623]Arkiv — Audit[/bold #f5a623]  "
+            "[bold #f5a623]Kurier — Audit[/bold #f5a623]  "
             "[dim]Enter=Detail  r=Neu laden  ESC=Zurück[/dim]",
             id="audit-header",
         )
@@ -1680,7 +1682,7 @@ class SetupWizardScreen(Screen[None]):
         review_dir = home / "Documents" / "Kurier" / "Prüfen"
 
         lines = [
-            "# Arkiv / Kurier Konfiguration",
+            "# Kurier Konfiguration",
             "# https://github.com/HerrStolzier/lotse",
             "",
             "[llm]",
@@ -1719,7 +1721,7 @@ class SetupWizardScreen(Screen[None]):
 
 
 class HomeScreen(App[None]):
-    """Arkiv Hauptmenü."""
+    """Kurier Hauptmenü."""
 
     CSS_PATH: ClassVar[Path] = Path(__file__).parent / "styles.css"
     SHOW_HEADER: ClassVar[bool] = False

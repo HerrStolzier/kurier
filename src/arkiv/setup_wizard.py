@@ -37,7 +37,7 @@ def run_wizard() -> bool:
     """Run the interactive setup wizard. Returns True if setup completed."""
     console.print(
         Panel(
-            "[bold]Arkiv Setup Wizard[/bold]\n\n"
+            "[bold]Kurier Setup Wizard[/bold]\n\n"
             "This will check your system, configure an LLM backend,\n"
             "and set up your first routes.",
             border_style="blue",
@@ -66,7 +66,7 @@ def run_wizard() -> bool:
         )
         console.print(
             "\n[yellow]Tesseract (OCR) is not installed.[/yellow]\n"
-            "Without it, Arkiv cannot extract text from scanned PDFs or images.\n"
+            "Without it, Kurier cannot extract text from scanned PDFs or images.\n"
             f"Install with: [bold]{install_cmd}[/bold]\n"
         )
 
@@ -418,7 +418,7 @@ def _configure_cloud(provider: str, default_model: str) -> dict[str, Any]:
     )
     console.print(
         f"You'll need an API key from {provider.title()}.\n"
-        f"Set it as environment variable before running Arkiv:\n"
+        f"Set it as environment variable before running Kurier:\n"
     )
 
     if provider == "openai":
@@ -461,7 +461,7 @@ def _configure_routes() -> dict[str, Any]:
     ]
 
     for route_name, description, categories in suggestions:
-        default_path = home / "Documents" / "Arkiv" / route_name.title()
+        default_path = home / "Documents" / "Kurier" / route_name.title()
         console.print(f"  [bold]{route_name}[/bold] — {description}")
         console.print(f"  Default path: [dim]{default_path}[/dim]")
 
@@ -481,7 +481,7 @@ def _configure_routes() -> dict[str, Any]:
     if not routes:
         # At least add archiv as default
         routes["archiv"] = {
-            "path": str(home / "Documents" / "Arkiv" / "Archiv"),
+            "path": str(home / "Documents" / "Kurier" / "Archiv"),
             "categories": ["rechnung", "vertrag", "brief", "bescheid"],
         }
 
@@ -496,7 +496,7 @@ def _write_config(llm_config: dict[str, Any], routes: dict[str, Any]) -> None:
     DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
     lines = [
-        "# Arkiv Configuration",
+        "# Kurier Configuration",
         "# https://github.com/HerrStolzier/lotse",
         "",
         "[llm]",

@@ -27,7 +27,7 @@ def create_app(config: ArkivConfig | None = None) -> FastAPI:
     _engine = Engine(cfg)
 
     api = FastAPI(
-        title="Arkiv",
+        title="Kurier",
         description="Universal capture → classify → route. Your AI-powered data pilot.",
         version=__version__,
     )

@@ -1,4 +1,4 @@
-"""Main processing engine — the heart of Arkiv."""
+"""Main processing engine — the heart of Kurier."""
 
 from __future__ import annotations
 

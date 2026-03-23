@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class PluginManager:
-    """Discovers and manages Arkiv plugins."""
+    """Discovers and manages Kurier plugins."""
 
     def __init__(self) -> None:
         self._pm = pluggy.PluginManager("arkiv")

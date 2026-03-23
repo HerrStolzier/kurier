@@ -11,9 +11,9 @@ hookimpl = pluggy.HookimplMarker("arkiv")
 
 
 class ArkivPluginSpec:
-    """Hook specifications for Arkiv plugins.
+    """Hook specifications for Kurier plugins.
 
-    Plugins implement these hooks to extend Arkiv's behavior.
+    Plugins implement these hooks to extend Kurier's behavior.
     All hooks are optional — implement only what you need.
     """
 

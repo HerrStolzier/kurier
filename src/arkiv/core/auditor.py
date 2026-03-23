@@ -1,6 +1,6 @@
 """Self-audit system — catches duplicates, misclassifications, and anomalies.
 
-The auditor reviews Arkiv's own routing decisions and reports issues:
+The auditor reviews Kurier's own routing decisions and reports issues:
 - Duplicate items (similar content routed to different locations)
 - Potential misclassifications (re-classify and compare)
 - Low-confidence items that may need manual review
@@ -55,7 +55,7 @@ class AuditReport:
 
 
 class Auditor:
-    """Audits Arkiv's routing decisions for quality."""
+    """Audits Kurier's routing decisions for quality."""
 
     def __init__(self, config: ArkivConfig) -> None:
         self.config = config

@@ -1,4 +1,4 @@
-"""Arkiv CLI — your AI-powered data pilot."""
+"""Kurier CLI — your AI-powered data pilot."""
 
 from __future__ import annotations
 
@@ -281,7 +281,7 @@ def status(
 
     from arkiv.db.store import Store
 
-    console.print(f"\n[bold]Arkiv[/bold] v{__version__}\n")
+    console.print(f"\n[bold]Kurier[/bold] v{__version__}\n")
 
     # Config info
     config_display = config or DEFAULT_CONFIG_FILE
@@ -420,7 +420,7 @@ def init(
     config: Path | None = typer.Option(None, "--config", "-c"),
     quick: bool = typer.Option(False, "--quick", "-q", help="Skip wizard, use defaults"),
 ) -> None:
-    """Initialize Arkiv — interactive setup wizard."""
+    """Initialize Kurier — interactive setup wizard."""
     path = config or DEFAULT_CONFIG_FILE
     if path.exists():
         console.print(f"[yellow]Config already exists:[/yellow] {path}")
@@ -544,7 +544,7 @@ def doctor(
 
     config_path = config or DEFAULT_CONFIG_FILE
 
-    check_table = Table(title="Arkiv Doctor", show_header=True, border_style="dim")
+    check_table = Table(title="Kurier Doctor", show_header=True, border_style="dim")
     check_table.add_column("Status", width=4)
     check_table.add_column("Prüfung")
     check_table.add_column("Details", style="dim")
@@ -822,7 +822,7 @@ def serve(
 
     api = create_app(cfg)
 
-    console.print(f"\n[bold]Arkiv API[/bold] v{__version__}")
+    console.print(f"\n[bold]Kurier API[/bold] v{__version__}")
     console.print(f"[dim]Docs:[/dim]    http://{host}:{port}/docs")
     console.print(f"[dim]Health:[/dim]  http://{host}:{port}/health\n")
 
@@ -988,7 +988,7 @@ def main(
     ctx: typer.Context,
     version: bool = typer.Option(False, "--version", "-V", help="Show version"),
 ) -> None:
-    """Arkiv — your AI-powered data pilot."""
+    """Kurier — your AI-powered data pilot."""
     if version:
         console.print(f"arkiv {__version__}")
         raise typer.Exit()

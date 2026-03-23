@@ -331,6 +331,90 @@ def status(
         console.print(cat_table)
 
 
+def _pick_folder(default: str) -> str:
+    """Open a native folder picker, with terminal fallback."""
+    import platform
+    import subprocess
+
+    system = platform.system()
+    picked: str | None = None
+
+    console.print("\n[bold]Wo soll der Kurier-Eingang sein?[/bold]")
+    console.print(f"[dim]Standard: {default}[/dim]\n")
+
+    if system == "Darwin":
+        # macOS: native Finder dialog
+        try:
+            console.print("[dim]Öffne Ordner-Auswahl...[/dim]")
+            result = subprocess.run(
+                [
+                    "osascript",
+                    "-e",
+                    'POSIX path of (choose folder with prompt "Kurier Eingangs-Ordner wählen")',
+                ],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                picked = result.stdout.strip().rstrip("/")
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+    elif system == "Linux":
+        # Linux: zenity or kdialog
+        for cmd in (
+            ["zenity", "--file-selection", "--directory", "--title=Kurier Eingangs-Ordner wählen"],
+            [
+                "kdialog",
+                "--getexistingdirectory",
+                str(Path.home()),
+                "--title",
+                "Kurier Eingangs-Ordner wählen",
+            ],
+        ):
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    picked = result.stdout.strip()
+                    break
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                continue
+    elif system == "Windows":
+        # Windows: PowerShell folder dialog
+        try:
+            ps_cmd = (
+                "Add-Type -AssemblyName System.Windows.Forms;"
+                "$f = New-Object System.Windows.Forms.FolderBrowserDialog;"
+                "$f.Description = 'Kurier Eingangs-Ordner wählen';"
+                "if ($f.ShowDialog() -eq 'OK') { $f.SelectedPath }"
+            )
+            result = subprocess.run(
+                ["powershell", "-Command", ps_cmd],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                picked = result.stdout.strip()
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+
+    if picked:
+        console.print(f"[green]✓[/green] Gewählt: {picked}")
+        return picked
+
+    # Fallback: Terminal-Eingabe
+    return typer.prompt(
+        "Eingangs-Ordner (Pfad eingeben)",
+        default=default,
+    )
+
+
 @app.command()
 def init(
     config: Path | None = typer.Option(None, "--config", "-c"),
@@ -345,13 +429,7 @@ def init(
 
     # Ask for inbox directory
     default_inbox = str(Path.home() / "Documents" / "Kurier" / "Eingang")
-    if quick:
-        inbox_dir = default_inbox
-    else:
-        inbox_dir = typer.prompt(
-            "Eingangs-Ordner (hier Dateien ablegen zum Sortieren)",
-            default=default_inbox,
-        )
+    inbox_dir = default_inbox if quick else _pick_folder(default_inbox)
 
     inbox_path = Path(inbox_dir).expanduser()
     inbox_path.mkdir(parents=True, exist_ok=True)

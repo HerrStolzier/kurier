@@ -41,8 +41,8 @@ class DatabaseConfig(BaseModel):
 
     @field_validator("path", mode="before")
     @classmethod
-    def expand_path(cls, v: object) -> Path:
-        return Path(v).expanduser() if isinstance(v, str | Path) else v  # type: ignore[arg-type]
+    def expand_path(cls, v: object) -> Path:  # type: ignore[return-value]
+        return Path(v).expanduser() if isinstance(v, str | Path) else v  # type: ignore[return-value]
 
 
 class RouteConfig(BaseModel):
@@ -77,8 +77,8 @@ class ArkivConfig(BaseSettings):
 
     @field_validator("inbox_dir", "review_dir", mode="before")
     @classmethod
-    def expand_dir(cls, v: object) -> Path:
-        return Path(v).expanduser() if isinstance(v, str | Path) else v  # type: ignore[arg-type]
+    def expand_dir(cls, v: object) -> Path:  # type: ignore[return-value]
+        return Path(v).expanduser() if isinstance(v, str | Path) else v  # type: ignore[return-value]
 
     log_level: str = "INFO"
     categories: dict[str, str] | None = None

@@ -76,7 +76,7 @@ def uninstall() -> tuple[bool, str]:
         return False, f"Betriebssystem '{system}' wird nicht unterstützt."
 
 
-def status() -> dict:
+def status() -> dict[str, object]:
     """Get service status.
 
     Returns dict with keys: installed, running, pid, log_path, recent_logs.
@@ -113,7 +113,7 @@ def is_installed() -> bool:
 
 def _install_macos(kurier_path: str) -> tuple[bool, str]:
     PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
-    plist: dict = {
+    plist: dict[str, object] = {
         "Label": "local.kurier.watch",
         "ProgramArguments": [kurier_path, "watch", "--verbose"],
         "RunAtLoad": True,
@@ -258,7 +258,7 @@ def _status_linux() -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _run(cmd: list[str]) -> subprocess.CompletedProcess | None:
+def _run(cmd: list[str]) -> subprocess.CompletedProcess[str] | None:
     """Run a subprocess with timeout=10. Returns None on timeout."""
     try:
         return subprocess.run(cmd, timeout=10, capture_output=True, check=False)

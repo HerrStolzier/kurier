@@ -100,7 +100,7 @@ plugins/arkiv-webhook/     # First-party plugin: webhook routes (Slack, Discord,
 - **sqlite-vec MATCH doesn't support WHERE filters**: Duplicate detection fetches extra rows and filters self-matches in Python, not SQL.
 - **Router supports fan-out**: One classification can match multiple routes. Folder routes move the file, webhook routes fire without moving. Empty `categories = []` acts as wildcard.
 - **OCR is two-stage**: PyMuPDF tries native text extraction first. Only if <50 chars found, Tesseract runs at 300 DPI. This avoids OCR overhead for 90% of PDFs.
-- **Dashboard uses HTMX partials**: Server returns HTML fragments, not JSON. Routes under `/dashboard/partials/*`. No JS build step. HTMX served locally, Tailwind via CDN.
+- **Dashboard uses HTMX partials**: Server returns HTML fragments, not JSON. Routes under `/dashboard/partials/*`. No JS build step. HTMX served locally, Tailwind pre-built locally (no CDN). CSS is at `src/arkiv/dashboard/static/styles.css` and is committed to git.
 - **Plugin tests can't run in same pytest invocation** as core tests due to `tests/` package name collision. Use separate `--rootdir`.
 - **Watcher Ollama-Polling**: Wenn Ollama nicht läuft, pollt der Watcher alle 30s statt Dateien blind zu verarbeiten. Nur bei `provider = "ollama"`.
 - **Service Plist-Pfad**: macOS: `~/Library/LaunchAgents/local.kurier.watch.plist`, Logs: `~/Library/Logs/kurier.log`
@@ -130,6 +130,21 @@ Nur `dev` ist optional: `pip install kurier[dev]`
 ## Ruff
 
 B008 and RUF012 are ignored globally — B008: typer.Argument/Option in defaults is the standard pattern. RUF012: ctypes _fields_ false positive.
+
+## Dashboard CSS Rebuild
+
+Tailwind CSS is pre-built and committed to git. Rebuild after template changes:
+```bash
+cd src/arkiv/dashboard
+./node_modules/.bin/tailwindcss -i input.css -o static/styles.css --minify
+```
+The `node_modules/` and `package.json` live in `src/arkiv/dashboard/`. Do NOT commit `node_modules/`.
+
+## API Server Flags (kurier serve)
+
+- `--api-key <key>` or env `KURIER_API_KEY` — require `x-api-key` header for non-localhost
+- `--force` — allow unauthenticated non-localhost binding (insecure, explicit opt-in)
+- Without `--force` or `--api-key`, non-localhost binding exits with an error
 
 ## Code Quality — Pflicht vor jedem Commit/Push
 

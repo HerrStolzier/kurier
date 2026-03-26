@@ -1,0 +1,70 @@
+{% if items %}
+<div class="space-y-2 fade-in">
+    {% for item in items %}
+    <div id="review-item-{{ item.id }}"
+         class="bg-arkiv-900 border border-arkiv-800 rounded-xl p-4">
+        <div class="flex items-start justify-between gap-4">
+            <!-- Left: text info -->
+            <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2 mb-1">
+                    <span class="inline-flex items-center bg-arkiv-800 text-arkiv-500 text-xs font-medium px-2 py-0.5 rounded">
+                        {{ item.category }}
+                    </span>
+                    <!-- Confidence bar -->
+                    <div class="flex items-center gap-1.5">
+                        <div class="w-16 bg-arkiv-800 rounded-full h-2">
+                            <div class="h-2 rounded-full
+                                {% if item.confidence >= 0.5 %}bg-yellow-400{% else %}bg-red-300{% endif %}"
+                                 style="width: {{ (item.confidence * 100) | int }}%"></div>
+                        </div>
+                        <span class="text-xs text-gray-500">{{ "%.0f" | format(item.confidence * 100) }}%</span>
+                    </div>
+                </div>
+                {% if item.summary %}
+                <p class="text-sm text-gray-300 truncate">{{ item.summary }}</p>
+                {% endif %}
+                {% if item.tags %}
+                <div class="flex flex-wrap gap-1 mt-1">
+                    {% for tag in item.tags | from_json %}
+                    <span class="text-xs bg-arkiv-800 text-gray-400 px-1.5 py-0.5 rounded">{{ tag }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                <p class="text-xs text-gray-600 mt-1">{{ item.original_path | replace("text://", "") }}</p>
+            </div>
+
+            <!-- Right: actions -->
+            <div class="flex flex-shrink-0 gap-2 items-center">
+                <!-- Confirm button -->
+                <button hx-post="/dashboard/partials/review/{{ item.id }}/confirm"
+                        hx-target="#review-item-{{ item.id }}"
+                        hx-swap="outerHTML"
+                        class="text-xs text-green-400 border border-green-800 rounded px-2 py-1 hover:bg-green-900/30 transition">
+                    Korrekt ✓
+                </button>
+
+                <!-- Correct form -->
+                <form hx-post="/dashboard/partials/review/{{ item.id }}/correct"
+                      hx-target="#review-item-{{ item.id }}"
+                      hx-swap="outerHTML"
+                      class="flex gap-1">
+                    <input type="text"
+                           name="category"
+                           placeholder="Neue Kategorie"
+                           value="{{ item.category }}"
+                           class="text-xs bg-arkiv-950 border border-arkiv-800 text-white rounded px-2 py-1 w-32 focus:outline-none focus:ring-1 focus:ring-arkiv-500" />
+                    <button type="submit"
+                            class="text-xs text-arkiv-500 border border-arkiv-800 rounded px-2 py-1 hover:border-arkiv-700 transition">
+                        Korrigieren
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="text-gray-500 text-sm py-8 text-center fade-in">
+    Keine unsicheren Klassifizierungen in der Queue.
+</div>
+{% endif %}

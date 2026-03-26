@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import tempfile
-from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, FastAPI, File, Form, HTTPException, Query, UploadFile
@@ -13,14 +11,29 @@ from pydantic import BaseModel
 from arkiv import __version__
 from arkiv.core.config import ArkivConfig
 from arkiv.core.engine import Engine
+from arkiv.core.upload import validate_and_save
 
 # Engine is initialized lazily via lifespan or create_app()
 _engine: Engine | None = None
 
 
-def create_app(config: ArkivConfig | None = None) -> FastAPI:
-    """Create a FastAPI app with the given config."""
+def create_app(
+    config: ArkivConfig | None = None,
+    api_key: str | None = None,
+    localhost_only: bool = False,
+) -> FastAPI:
+    """Create a FastAPI app with the given config.
+
+    Args:
+        config: Optional ArkivConfig to use. Loaded from disk if not provided.
+        api_key: Optional API key required for non-localhost requests.
+        localhost_only: When True and no api_key is set, block all non-localhost access.
+            Defaults to False (no restriction). Set to True via ``kurier serve`` when
+            the host is non-localhost and no --api-key / --force flag is given.
+    """
     global _engine
+
+    from arkiv.core.auth import ApiKeyMiddleware
 
     cfg = config or ArkivConfig.load()
     cfg.ensure_dirs()
@@ -31,6 +44,10 @@ def create_app(config: ArkivConfig | None = None) -> FastAPI:
         description="Universal capture → classify → route. Your AI-powered data pilot.",
         version=__version__,
     )
+
+    # Add auth middleware only when access control is actually needed
+    if api_key or localhost_only:
+        api.add_middleware(ApiKeyMiddleware, api_key=api_key, localhost_only=localhost_only)
 
     api.include_router(_build_router())
 
@@ -111,14 +128,8 @@ def _build_router() -> APIRouter:
         """Upload a file to be classified and routed."""
         engine = _get_engine()
 
-        # Save upload to temp file, preserving original filename
-        suffix = Path(file.filename or "upload").suffix
-        stem = Path(file.filename or "upload").stem
-
-        with tempfile.NamedTemporaryFile(prefix=f"{stem}_", suffix=suffix, delete=False) as tmp:
-            content = await file.read()
-            tmp.write(content)
-            tmp_path = Path(tmp.name)
+        # Validate and stream to temp file
+        tmp_path = await validate_and_save(file)
 
         try:
             result = engine.ingest_file(tmp_path)

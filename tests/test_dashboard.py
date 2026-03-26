@@ -35,7 +35,7 @@ def test_dashboard_loads(client: TestClient) -> None:
     assert resp.status_code == 200
     assert "Kurier" in resp.text
     assert "htmx" in resp.text
-    assert "tailwindcss" in resp.text
+    assert "styles.css" in resp.text
 
 
 def test_stats_partial(client: TestClient) -> None:

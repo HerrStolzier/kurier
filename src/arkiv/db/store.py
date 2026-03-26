@@ -395,5 +395,38 @@ class Store:
 
         return result
 
+    def low_confidence(self, threshold: float = 0.6, limit: int = 50) -> list[dict[str, Any]]:
+        """Return items classified with confidence below *threshold*.
+
+        Excludes items that are already in the review queue (route_name == '__review__')
+        and items that were undone.
+        """
+        cursor = self._conn.execute(
+            """SELECT * FROM items
+               WHERE confidence < ?
+               AND status != 'undone'
+               AND route_name != '__review__'
+               ORDER BY confidence ASC, created_at DESC
+               LIMIT ?""",
+            (threshold, limit),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def update_category(self, item_id: int, new_category: str) -> None:
+        """Update the category of an item (manual correction)."""
+        self._conn.execute(
+            "UPDATE items SET category = ? WHERE id = ?",
+            (new_category, item_id),
+        )
+        self._conn.commit()
+
+    def confirm_classification(self, item_id: int) -> None:
+        """Mark an item's classification as confirmed (sets confidence to 1.0)."""
+        self._conn.execute(
+            "UPDATE items SET confidence = 1.0 WHERE id = ?",
+            (item_id,),
+        )
+        self._conn.commit()
+
     def close(self) -> None:
         self._conn.close()

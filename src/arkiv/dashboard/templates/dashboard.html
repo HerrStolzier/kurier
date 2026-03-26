@@ -64,25 +64,81 @@
     </div>
 </div>
 
-<!-- Recent items -->
+<!-- Tabs: Recent / Review -->
 <section>
     <div class="bg-arkiv-900 rounded-xl border border-arkiv-800 p-6">
+        <!-- Tab nav -->
         <div class="flex items-center justify-between mb-4">
-            <h2 class="text-lg font-medium text-white">Recent Items</h2>
-            <button hx-get="/dashboard/partials/recent"
+            <div class="flex gap-4 text-sm" id="tab-nav">
+                <button id="tab-recent-btn"
+                        onclick="switchTab('recent')"
+                        class="font-medium text-white border-b-2 border-arkiv-500 pb-0.5">
+                    Recent Items
+                </button>
+                <button id="tab-review-btn"
+                        onclick="switchTab('review')"
+                        class="text-gray-400 hover:text-white pb-0.5 border-b-2 border-transparent hover:border-arkiv-800 transition">
+                    Überprüfung
+                </button>
+            </div>
+            <button id="tab-refresh-btn"
+                    hx-get="/dashboard/partials/recent"
                     hx-target="#recent-items"
                     class="text-sm text-arkiv-500 hover:text-arkiv-400">
                 Refresh
             </button>
         </div>
-        <div id="recent-items"
-             hx-get="/dashboard/partials/recent"
-             hx-trigger="load"
-             hx-swap="innerHTML">
-            <div class="text-gray-500 text-sm">Loading...</div>
+
+        <!-- Recent tab -->
+        <div id="tab-recent">
+            <div id="recent-items"
+                 hx-get="/dashboard/partials/recent"
+                 hx-trigger="load"
+                 hx-swap="innerHTML">
+                <div class="text-gray-500 text-sm">Loading...</div>
+            </div>
+        </div>
+
+        <!-- Review queue tab (hidden by default) -->
+        <div id="tab-review" class="hidden">
+            <div id="review-items"
+                 hx-get="/dashboard/partials/review"
+                 hx-trigger="revealed"
+                 hx-swap="innerHTML">
+                <div class="text-gray-500 text-sm">Loading...</div>
+            </div>
         </div>
     </div>
 </section>
+
+<!-- Tab switching JS -->
+<script>
+    function switchTab(name) {
+        const tabs = ['recent', 'review'];
+        tabs.forEach(t => {
+            const pane = document.getElementById('tab-' + t);
+            const btn = document.getElementById('tab-' + t + '-btn');
+            const refreshBtn = document.getElementById('tab-refresh-btn');
+            if (t === name) {
+                pane.classList.remove('hidden');
+                btn.classList.add('text-white', 'border-arkiv-500');
+                btn.classList.remove('text-gray-400', 'border-transparent');
+                if (t === 'review') {
+                    refreshBtn.setAttribute('hx-get', '/dashboard/partials/review');
+                    refreshBtn.setAttribute('hx-target', '#review-items');
+                } else {
+                    refreshBtn.setAttribute('hx-get', '/dashboard/partials/recent');
+                    refreshBtn.setAttribute('hx-target', '#recent-items');
+                }
+                htmx.process(refreshBtn);
+            } else {
+                pane.classList.add('hidden');
+                btn.classList.remove('text-white', 'border-arkiv-500');
+                btn.classList.add('text-gray-400', 'border-transparent');
+            }
+        });
+    }
+</script>
 
 <!-- Drag-and-drop JS -->
 <script>

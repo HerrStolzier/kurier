@@ -880,6 +880,17 @@ def serve(
     port: int = typer.Option(8790, "--port", "-p"),
     config: Path | None = typer.Option(None, "--config", "-c"),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Allow binding to non-localhost without --api-key (insecure).",
+    ),
+    api_key: str | None = typer.Option(
+        None,
+        "--api-key",
+        envvar="KURIER_API_KEY",
+        help="API key required for non-localhost access (header: x-api-key).",
+    ),
 ) -> None:
     """Start the REST API server (requires: pip install arkiv[api])."""
     if verbose:
@@ -893,19 +904,38 @@ def serve(
         raise typer.Exit(1) from None
 
     if host != "127.0.0.1":
-        console.print(
-            f"\n[yellow bold]Security Warning:[/yellow bold] Binding to "
-            f"[bold]{host}[/bold] exposes the API to your network.\n"
-            "[yellow]All endpoints are unauthenticated. Anyone on your "
-            "network can search, upload, and read your classified documents."
-            "[/yellow]\n"
-        )
+        if not force and not api_key:
+            console.print(
+                f"\n[red bold]Fehler:[/red bold] Binding to [bold]{host}[/bold] "
+                "exposes the API to your network.\n"
+                "Use [bold]--api-key <key>[/bold] to require authentication, "
+                "or [bold]--force[/bold] to allow unauthenticated access (insecure).\n"
+            )
+            raise typer.Exit(1)
+
+        if api_key:
+            console.print(
+                f"\n[yellow]Non-localhost binding:[/yellow] "
+                f"[bold]{host}:{port}[/bold] — API key authentication active.\n"
+            )
+        else:
+            console.print(
+                f"\n[yellow bold]Security Warning:[/yellow bold] Binding to "
+                f"[bold]{host}[/bold] exposes the API to your network.\n"
+                "[yellow]All endpoints are unauthenticated. Anyone on your "
+                "network can search, upload, and read your classified documents."
+                "[/yellow]\n"
+            )
 
     cfg = _get_config(config)
 
     from arkiv.inlets.api import create_app
 
-    api = create_app(cfg)
+    # For non-localhost with an api_key: middleware enforces key requirement.
+    # For non-localhost with --force and no key: localhost_only=False, no blocking.
+    # For localhost: no middleware needed (middleware allows localhost anyway).
+    _localhost_only = host != "127.0.0.1" and not force
+    api = create_app(cfg, api_key=api_key, localhost_only=_localhost_only)
 
     console.print(f"\n[bold]Kurier API[/bold] v{__version__}")
     console.print(f"[dim]Docs:[/dim]    http://{host}:{port}/docs")

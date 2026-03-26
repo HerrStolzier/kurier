@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+@theme {
+  --color-arkiv-50: #eff6ff;
+  --color-arkiv-100: #dbeafe;
+  --color-arkiv-500: #3b82f6;
+  --color-arkiv-600: #2563eb;
+  --color-arkiv-700: #1d4ed8;
+  --color-arkiv-800: #1e3a5f;
+  --color-arkiv-900: #0f172a;
+  --color-arkiv-950: #020617;
+}
+
+@layer base {
+  .htmx-indicator { display: none; }
+  .htmx-request .htmx-indicator { display: inline-block; }
+  .htmx-request.htmx-indicator { display: inline-block; }
+  .fade-in { animation: fadeIn 0.2s ease-in; }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .drop-active {
+    border-color: #3b82f6 !important;
+    background-color: #eff6ff !important;
+  }
+}

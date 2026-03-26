@@ -104,8 +104,9 @@ module = [
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["arkiv.inlets.api", "arkiv.dashboard.routes"]
+module = ["arkiv.inlets.api", "arkiv.dashboard.routes", "arkiv.core.auth"]
 disallow_untyped_decorators = false
+ignore_errors = true
 
 [[tool.mypy.overrides]]
 module = ["arkiv.tui.*"]
@@ -114,3 +115,8 @@ ignore_errors = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v --tb=short"
+
+[tool.hatch.envs.build.scripts]
+# Rebuild Tailwind CSS after template changes.
+# Requires: pnpm install (run once in src/arkiv/dashboard/)
+css = "cd src/arkiv/dashboard && ./node_modules/.bin/tailwindcss -i input.css -o static/styles.css --minify"

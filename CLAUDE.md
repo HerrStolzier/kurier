@@ -7,10 +7,11 @@ PyPI: `pipx install kurier` | CLI: `kurier` | Internal package: `arkiv`
 
 ```bash
 # Install (development)
-pip install -e ".[dev]"
+uv pip install -e ".[dev]"
+uv pip install -e plugins/arkiv-webhook
 
 # Run tests
-pytest                    # all 82+ tests
+pytest tests/ -x -q       # all 92 core tests
 pytest tests/test_api.py  # specific module
 pytest -m smoke           # smoke tests only (require Ollama)
 
@@ -126,7 +127,7 @@ Key sections:
 ## Optional Dependencies
 
 Alle Dependencies in main (kein litellm!): httpx, typer, rich, textual, fastapi, etc.
-Nur `dev` ist optional: `pip install kurier[dev]`
+Nur `dev` ist optional: `uv pip install -e ".[dev]"`
 **httpx** statt litellm für LLM-Calls — ~130 Zeilen eigener Code in `core/llm.py`
 
 ## Ruff
@@ -163,4 +164,4 @@ pytest tests/ -x -q                          # Tests
 - Unit tests mock LLM calls via `patch("arkiv.core.classifier.completion")`.
 - API tests use `fastapi.testclient.TestClient`.
 - Store/auditor tests use `tmp_path` fixture for disposable SQLite DBs.
-- **Mock gap warning**: Unit tests with mocked LLM don't test the real integration path (LiteLLM → Ollama). Always verify with at least one smoke test using a real LLM. The pluggy empty-list bug was invisible to 78 green unit tests.
+- **Mock gap warning**: Unit tests with mocked LLM don't test the real provider integration path. Always verify with at least one smoke test using a real LLM. The pluggy empty-list bug was invisible to a fully green mocked test suite.

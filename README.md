@@ -222,6 +222,18 @@ ruff check src/
 mypy src/arkiv/ --ignore-missing-imports
 ```
 
+## Troubleshooting
+
+If local development feels "almost working" but commands fail in strange ways, these are the most common fixes:
+
+- **`pytest` points to an old path**: recreate the virtualenv with `rm -rf .venv && uv venv .venv`, then reinstall with `uv pip install -e ".[dev]"`.
+- **`ModuleNotFoundError: arkiv` during tests**: the repo is not installed in editable mode yet. Run `uv pip install -e ".[dev]"`.
+- **Plugin tests cannot import `arkiv_webhook`**: install the plugin locally first with `uv pip install -e plugins/arkiv-webhook`.
+- **Plugin tests fail when mixed with core tests**: run them separately with `pytest --rootdir=plugins/arkiv-webhook --override-ini="testpaths=plugins/arkiv-webhook/tests" plugins/arkiv-webhook/tests/`.
+- **Classification changes look fine in unit tests but fail in real usage**: mocked tests do not prove provider wiring. Run at least one real-provider smoke check after touching classification, provider integration, or plugin hooks.
+
+For plugin-specific details, see the [Plugin Guide](docs/plugins.md).
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

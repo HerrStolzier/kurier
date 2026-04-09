@@ -537,9 +537,9 @@ class Store:
         return [dict(row) for row in cursor.fetchall()]
 
     def update_category(self, item_id: int, new_category: str) -> None:
-        """Update the category of an item (manual correction)."""
+        """Update an item's category and treat the manual correction as confirmed."""
         self._conn.execute(
-            "UPDATE items SET category = ? WHERE id = ?",
+            "UPDATE items SET category = ?, confidence = 1.0 WHERE id = ?",
             (new_category, item_id),
         )
         self._conn.commit()

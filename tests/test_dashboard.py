@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from arkiv.core.config import ArkivConfig
+from arkiv.db.store import Store
 from arkiv.inlets.api import create_app
 
 
@@ -191,3 +192,38 @@ def test_recent_shows_items_after_upload(client: TestClient) -> None:
     assert "A quick note" in resp.text
     assert "notiz" in resp.text
     assert "Kurze Notiz" in resp.text
+
+
+def test_review_correct_confirms_item_and_removes_it_from_queue(
+    client: TestClient, tmp_path: Path
+) -> None:
+    store = Store(tmp_path / "test.db")
+    item_id = store.record_item(
+        original_path="/tmp/brief.txt",
+        destination="/archive/brief.txt",
+        category="notiz",
+        confidence=0.41,
+        summary="Unsicher eingeordneter Brief",
+        tags=["brief"],
+        language="de",
+        route_name="archiv",
+    )
+
+    before = client.get("/dashboard/partials/review")
+    assert before.status_code == 200
+    assert "Unsicher eingeordneter Brief" in before.text
+
+    resp = client.post(
+        f"/dashboard/partials/review/{item_id}/correct",
+        data={"category": "brief"},
+    )
+    assert resp.status_code == 200
+    assert resp.text == ""
+
+    after = client.get("/dashboard/partials/review")
+    assert after.status_code == 200
+    assert "Unsicher eingeordneter Brief" not in after.text
+
+    updated = store.recent(limit=1)[0]
+    assert updated["category"] == "brief"
+    assert updated["confidence"] == 1.0

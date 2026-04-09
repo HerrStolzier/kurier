@@ -117,3 +117,25 @@ def test_stats(store: Store) -> None:
 def test_empty_search(store: Store) -> None:
     results = store.search("nonexistent")
     assert results == []
+
+
+def test_update_category_marks_item_confirmed(store: Store) -> None:
+    item_id = store.record_item(
+        original_path="/tmp/brief.txt",
+        destination="/archive/brief.txt",
+        category="notiz",
+        confidence=0.41,
+        summary="Unsicher eingeordneter Brief",
+        tags=["brief"],
+        language="de",
+        route_name="archiv",
+    )
+
+    assert [item["id"] for item in store.low_confidence()] == [item_id]
+
+    store.update_category(item_id, "brief")
+
+    recent = store.recent(limit=1)
+    assert recent[0]["category"] == "brief"
+    assert recent[0]["confidence"] == 1.0
+    assert store.low_confidence() == []

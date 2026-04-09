@@ -188,7 +188,7 @@ src/arkiv/
 - [x] REST API inlet (FastAPI with auto-docs)
 - [x] Semantic search (FastEmbed + sqlite-vec hybrid search with RRF)
 - [x] Web dashboard (HTMX + Tailwind, no build step)
-- [x] Email inlet (IMAP fetch + .eml/.mbox import)
+- [ ] Optional later: Email inlet (IMAP fetch + .eml/.mbox import)
 - [x] Webhook route plugin (Slack, Discord, generic)
 - [x] OCR support (PyMuPDF + Tesseract)
 - [x] Self-audit system (duplicates, misclassifications, orphaned files)

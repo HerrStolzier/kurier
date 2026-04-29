@@ -33,11 +33,19 @@ pipx install "kurier @ git+https://github.com/HerrStolzier/kurier.git"
 # Make sure Ollama is running with a model
 ollama pull qwen2.5:7b
 
+# One-time setup
+kurier init
+
+# Optional first-run check
+kurier doctor --fix
+
 # Start Kurier
 kurier
 ```
 
-That's it. `kurier` launches the interactive TUI where you can classify files, search, monitor your inbox, and more — all from one interface.
+That's it. `kurier init` writes a starter config and creates the default folders. `kurier doctor --fix` is a safe first-run helper: it creates any still-missing directories from your config and shows whether your local model setup looks reachable.
+
+After that, `kurier` launches the interactive TUI where you can classify files, search, monitor your inbox, and more — all from one interface.
 
 > **Alternative install methods:**
 > ```bash
@@ -61,6 +69,7 @@ kurier status                  # Processing statistics
 kurier undo                    # Undo last routing action
 kurier export --format csv     # Export all items as CSV
 kurier doctor                  # Check system health
+kurier doctor --fix            # Create missing config directories
 kurier init                    # Interactive setup wizard
 ```
 
@@ -178,6 +187,19 @@ src/arkiv/
 └── routes/             # Built-in route handlers
 ```
 
+## Current Product Status
+
+This is the honest status snapshot as of **2026-04-10**:
+
+| Status | What it means in practice |
+|--------|----------------------------|
+| **Stable** | Fresh install, `kurier init`, `kurier doctor --fix`, file intake via `kurier add`, folder routing, watcher flow, API server, dashboard review fixes, undo/export, and the basic local-first archive flow have been exercised end-to-end. |
+| **Usable** | AI-assisted memory search is integrated and works in the product, but it still depends heavily on model quality and has not yet gone through deeper comparative benchmarking. Webhook routing/plugin delivery has now been exercised against a live local endpoint, so it is no longer just theoretical, but external SaaS targets still have lighter validation than the core flow. |
+| **Experimental** | TUI support is present and starts cleanly, but deeper interactive coverage is still lighter than the core CLI/dashboard path. |
+| **Deferred** | Browser extension work is intentionally out of scope for now. Email inlet support remains an optional-later item rather than part of the current core experience. |
+
+If you want the longer rationale behind this snapshot, see [docs/product-maturity.md](docs/product-maturity.md).
+
 ## Roadmap
 
 - [x] Core pipeline: capture → classify → route
@@ -229,6 +251,7 @@ If local development feels "almost working" but commands fail in strange ways, t
 - **`ModuleNotFoundError: arkiv` during tests**: the repo is not installed in editable mode yet. Run `uv pip install -e ".[dev]"`.
 - **Plugin tests cannot import `arkiv_webhook`**: install the plugin locally first with `uv pip install -e plugins/arkiv-webhook`.
 - **Plugin tests fail when mixed with core tests**: run them separately with `pytest --rootdir=plugins/arkiv-webhook --override-ini="testpaths=plugins/arkiv-webhook/tests" plugins/arkiv-webhook/tests/`.
+- **`kurier doctor` warns about missing folders on a fresh setup**: that is often just first-run state, not a broken install. Run `kurier doctor --fix` once to create the configured directories.
 - **Classification changes look fine in unit tests but fail in real usage**: mocked tests do not prove provider wiring. Run at least one real-provider smoke check after touching classification, provider integration, or plugin hooks.
 
 For plugin-specific details, see the [Plugin Guide](docs/plugins.md).

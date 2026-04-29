@@ -1,4 +1,4 @@
-"""Filesystem watcher inlet — monitors a directory for new files."""
+"""Filesystem watcher inlet — monitors a directory for new and existing files."""
 
 from __future__ import annotations
 
@@ -12,6 +12,22 @@ from watchdog.events import DirCreatedEvent, FileCreatedEvent, FileSystemEventHa
 from watchdog.observers import Observer
 
 logger = logging.getLogger(__name__)
+
+
+def _should_skip_path(path: Path) -> bool:
+    """Ignore hidden and temporary files in the inbox."""
+    return path.name.startswith(".") or path.name.endswith(".tmp")
+
+
+def list_inbox_files(inbox_dir: Path) -> list[Path]:
+    """Return visible inbox files in a stable order."""
+    if not inbox_dir.exists():
+        return []
+
+    return sorted(
+        (path for path in inbox_dir.iterdir() if path.is_file() and not _should_skip_path(path)),
+        key=lambda path: path.name.casefold(),
+    )
 
 
 class InboxHandler(FileSystemEventHandler):
@@ -28,26 +44,27 @@ class InboxHandler(FileSystemEventHandler):
         self._seen: dict[str, float] = {}
         self._semaphore = semaphore
 
-    def on_created(self, event: DirCreatedEvent | FileCreatedEvent) -> None:
-        if event.is_directory:
+    def process_path(
+        self,
+        path: Path,
+        *,
+        use_cooldown: bool = True,
+        source_label: str = "New file detected",
+    ) -> None:
+        """Process one inbox file with the same safeguards as live events."""
+        if _should_skip_path(path):
             return
 
-        src = event.src_path
-        src_str = src.decode() if isinstance(src, bytes) else src
-        path = Path(src_str)
+        src_str = str(path)
 
-        # Skip hidden files and temp files
-        if path.name.startswith(".") or path.name.endswith(".tmp"):
-            return
+        if use_cooldown:
+            now = time.time()
+            last_seen = self._seen.get(src_str, 0)
+            if now - last_seen < self.cooldown:
+                return
+            self._seen[src_str] = now
 
-        # Cooldown to avoid processing partial writes
-        now = time.time()
-        last_seen = self._seen.get(src_str, 0)
-        if now - last_seen < self.cooldown:
-            return
-        self._seen[src_str] = now
-
-        logger.info("New file detected: %s", path.name)
+        logger.info("%s: %s", source_label, path.name)
 
         if self._semaphore is not None:
             logger.debug("Waiting for processing slot...")
@@ -61,6 +78,15 @@ class InboxHandler(FileSystemEventHandler):
             if self._semaphore is not None:
                 self._semaphore.release()
 
+    def on_created(self, event: DirCreatedEvent | FileCreatedEvent) -> None:
+        if event.is_directory:
+            return
+
+        src = event.src_path
+        src_str = src.decode() if isinstance(src, bytes) else src
+        path = Path(src_str)
+        self.process_path(path)
+
 
 class Watcher:
     """Watches the inbox directory and triggers processing."""
@@ -71,6 +97,7 @@ class Watcher:
         callback: Callable[[Path], None],
         max_concurrent: int = 3,
         llm_provider: str = "ollama",
+        drain_existing: bool = False,
     ) -> None:
         self.inbox_dir = inbox_dir
         self.observer = Observer()
@@ -78,6 +105,22 @@ class Watcher:
         self.handler = InboxHandler(callback, semaphore=self._semaphore)
         self._stop_event = Event()
         self._llm_provider = llm_provider
+        self._drain_existing = drain_existing
+
+    def _drain_existing_files(self) -> int:
+        """Process files that already exist before the watcher starts."""
+        existing_files = list_inbox_files(self.inbox_dir)
+        if not existing_files:
+            return 0
+
+        logger.info(
+            "Processing %d existing file(s) in %s before watch starts.",
+            len(existing_files),
+            self.inbox_dir,
+        )
+        for path in existing_files:
+            self.handler.process_path(path, use_cooldown=False, source_label="Existing file found")
+        return len(existing_files)
 
     def _wait_for_ollama(self) -> None:
         """Poll Ollama until reachable. Blocks with 30s intervals."""
@@ -98,6 +141,10 @@ class Watcher:
         if self._llm_provider == "ollama":
             self._wait_for_ollama()
         self.inbox_dir.mkdir(parents=True, exist_ok=True)
+        if self._drain_existing:
+            drained = self._drain_existing_files()
+            if drained:
+                logger.info("Existing inbox drained: %d file(s) processed.", drained)
         self.observer.schedule(self.handler, str(self.inbox_dir), recursive=False)
         self.observer.start()
         logger.info("Watching %s for new files...", self.inbox_dir)

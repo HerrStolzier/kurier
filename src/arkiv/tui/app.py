@@ -77,6 +77,13 @@ def _color_status(status: str | None) -> str:
     return f"[{color}]{s}[/{color}]"
 
 
+def _count_visible_files(directory: Path) -> int:
+    """Sichtbare Dateien zählen, ohne versteckte Temp-Dateien mitzunehmen."""
+    from arkiv.inlets.watch import list_inbox_files
+
+    return len(list_inbox_files(directory))
+
+
 # ---------------------------------------------------------------------------
 # Detail-Modal
 # ---------------------------------------------------------------------------
@@ -722,6 +729,7 @@ class WatchScreen(Screen[None]):
                 inbox_dir=inbox_dir,
                 callback=self._watch_callback,
                 max_concurrent=3,
+                drain_existing=True,
             )
             self._watcher.start()
         except Exception as exc:
@@ -974,7 +982,34 @@ class DoctorModal(ModalScreen[None]):
                 fail("Config laden", str(e))
                 cfg_valid = False
 
-        # Check 2: Route-Verzeichnisse
+        # Check 2: Auto-Sortierung / Inbox
+        if cfg is not None:
+            from arkiv import service
+
+            try:
+                info = service.status()
+                inbox_count = _count_visible_files(cfg.inbox_dir)
+                review_count = _count_visible_files(cfg.review_dir)
+
+                if info.get("running"):
+                    detail = "Hintergrunddienst läuft"
+                    if inbox_count:
+                        detail += f"; {inbox_count} Datei(en) im Eingang"
+                    ok("Auto-Sortierung", detail)
+                else:
+                    detail = "Hintergrunddienst ist aus — starte mit `kurier service on`"
+                    if inbox_count:
+                        detail += f" ({inbox_count} Datei(en) im Eingang)"
+                    warn("Auto-Sortierung", detail)
+
+                if review_count:
+                    warn("Prüfen", f"{review_count} Datei(en) warten auf Sichtung")
+                else:
+                    ok("Prüfen", "Leer")
+            except Exception as e:
+                warn("Auto-Sortierung", f"Status konnte nicht geprüft werden: {str(e)[:60]}")
+
+        # Check 3: Route-Verzeichnisse
         if cfg is not None:
             from pathlib import Path as _Path
 
@@ -986,7 +1021,7 @@ class DoctorModal(ModalScreen[None]):
                     else:
                         warn(f"Route '{name}'", f"Verzeichnis fehlt: {rp}")
 
-        # Check 3: LLM erreichbar
+        # Check 4: LLM erreichbar
         if cfg is not None:
             if cfg.llm.provider == "ollama":
                 ollama_url = (cfg.llm.base_url or "http://localhost:11434").rstrip("/")
@@ -1008,7 +1043,7 @@ class DoctorModal(ModalScreen[None]):
             else:
                 ok("LLM", f"{cfg.llm.provider} (API-Key via Env-Var)")
 
-        # Check 4: DB-Status
+        # Check 5: DB-Status
         if cfg is not None and cfg.database.path.exists():
             try:
                 from arkiv.db.store import Store
@@ -1727,12 +1762,37 @@ class SetupWizardScreen(Screen[None]):
             'categories = ["rechnung", "vertrag", "brief", "bescheid"]',
             "confidence_threshold = 0.7",
             "",
+            "[routes.artikel]",
+            'type = "folder"',
+            f'path = "{home / "Documents" / "Kurier" / "Artikel"}"',
+            'categories = ["artikel", "paper", "tutorial", "dokumentation"]',
+            "confidence_threshold = 0.6",
+            "",
+            "[routes.code]",
+            'type = "folder"',
+            f'path = "{home / "Documents" / "Kurier" / "Code"}"',
+            'categories = ["code", "config", "script"]',
+            "confidence_threshold = 0.6",
+            "",
+            "[routes.notizen]",
+            'type = "folder"',
+            f'path = "{home / "Documents" / "Kurier" / "Notizen"}"',
+            'categories = ["notiz"]',
+            "confidence_threshold = 0.5",
+            "",
         ]
 
         DEFAULT_CONFIG_FILE.write_text("\n".join(lines) + "\n")
 
         # Verzeichnisse anlegen
-        for d in (self._inbox_path, review_dir, home / "Documents" / "Kurier" / "Archiv"):
+        for d in (
+            self._inbox_path,
+            review_dir,
+            home / "Documents" / "Kurier" / "Archiv",
+            home / "Documents" / "Kurier" / "Artikel",
+            home / "Documents" / "Kurier" / "Code",
+            home / "Documents" / "Kurier" / "Notizen",
+        ):
             d.mkdir(parents=True, exist_ok=True)
 
 
@@ -1793,11 +1853,20 @@ class HomeScreen(App[None]):
             return
 
         try:
+            from arkiv import service
             from arkiv.db.store import Store
 
             cfg = self._config  # type: ignore[assignment]
+            service_running = bool(service.status().get("running"))
+            service_text = "Auto-Sortierung: an" if service_running else "Auto-Sortierung: aus"
+            inbox_count = _count_visible_files(cfg.inbox_dir)  # type: ignore[union-attr]
+            review_count = _count_visible_files(cfg.review_dir)  # type: ignore[union-attr]
+
             if not cfg.database.path.exists():  # type: ignore[union-attr]
-                self._update_stats("Datenbank leer — noch keine Einträge.")
+                self._update_stats(
+                    f"{service_text}  |  Eingang: {inbox_count}  |  Prüfen: {review_count}  "
+                    "|  Noch keine Einträge"
+                )
                 return
 
             store = Store(cfg.database.path)  # type: ignore[union-attr]
@@ -1807,6 +1876,7 @@ class HomeScreen(App[None]):
             pending = sum(1 for it in all_items if it.get("status") == "pending")
             failed = sum(1 for it in all_items if it.get("status") == "failed")
             self._update_stats(
+                f"{service_text}  |  Eingang: {inbox_count}  |  Prüfen: {review_count}  |  "
                 f"Einträge: {total}  |  Ausstehend: {pending}  |  Fehlgeschlagen: {failed}"
             )
         except Exception as exc:

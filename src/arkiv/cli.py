@@ -32,6 +32,35 @@ def _get_config(config: Path | None = None) -> ArkivConfig:
     return cfg
 
 
+def _count_visible_inbox_files(inbox_dir: Path) -> int:
+    from arkiv.inlets.watch import list_inbox_files
+
+    return len(list_inbox_files(inbox_dir))
+
+
+def _drain_existing_inbox(cfg: ArkivConfig) -> tuple[int, int]:
+    """Process files that already exist in the inbox right now."""
+    from arkiv.core.engine import Engine
+    from arkiv.inlets.watch import list_inbox_files
+
+    existing_files = list_inbox_files(cfg.inbox_dir)
+    if not existing_files:
+        return 0, 0
+
+    engine = Engine(cfg)
+    processed = 0
+    failed = 0
+
+    for path in existing_files:
+        result = engine.ingest_file(path)
+        if result.success:
+            processed += 1
+        else:
+            failed += 1
+
+    return processed, failed
+
+
 # ---------------------------------------------------------------------------
 # Service sub-app
 # ---------------------------------------------------------------------------
@@ -47,14 +76,35 @@ def service_on(
     """Hintergrund-Service starten — Kurier sortiert automatisch."""
     from arkiv import service
 
+    cfg = _get_config(config)
+    waiting_files = _count_visible_inbox_files(cfg.inbox_dir)
     success, msg = service.install()
     if success:
         console.print(f"[green]✓[/green] {msg}")
-        cfg = _get_config(config)
         console.print(f"[dim]Inbox: {cfg.inbox_dir}[/dim]")
         console.print("[dim]Dateien werden ab jetzt automatisch sortiert.[/dim]")
+        if waiting_files:
+            noun = "Datei" if waiting_files == 1 else "Dateien"
+            console.print(
+                f"[dim]{waiting_files} vorhandene {noun} im Eingang "
+                "werden jetzt einmalig mitverarbeitet.[/dim]"
+            )
     else:
         console.print(f"[yellow]{msg}[/yellow]")
+        info = service.status()
+        if info.get("running"):
+            processed, failed = _drain_existing_inbox(cfg)
+            if processed or failed:
+                console.print(
+                    "[dim]Vorhandene Dateien im Eingang wurden direkt noch einmal angestoßen.[/dim]"
+                )
+                console.print(f"[dim]Verarbeitet: {processed}  |  Fehlgeschlagen: {failed}[/dim]")
+        elif info.get("installed"):
+            console.print("[dim]Der Dienst ist installiert, läuft aber gerade nicht.[/dim]")
+            console.print(
+                "[dim]Bitte einmal neu starten: `kurier service off` "
+                "und dann `kurier service on`.[/dim]"
+            )
 
 
 @service_app.command("off")
@@ -145,6 +195,11 @@ def add(
 @app.command()
 def watch(
     config: Path | None = typer.Option(None, "--config", "-c"),
+    drain_existing: bool = typer.Option(
+        False,
+        "--drain-existing",
+        help="Verarbeite vorhandene Dateien im Eingang einmalig vor dem Watch-Modus",
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ) -> None:
     """Watch the inbox directory and auto-process new files."""
@@ -161,6 +216,13 @@ def watch(
     engine = Engine(cfg)
 
     console.print(f"[blue]Watching:[/blue] {cfg.inbox_dir}")
+    if drain_existing:
+        existing = _count_visible_inbox_files(cfg.inbox_dir)
+        if existing:
+            noun = "Datei" if existing == 1 else "Dateien"
+            console.print(
+                f"[dim]Vorhandene {existing} {noun} werden zuerst einmalig verarbeitet.[/dim]"
+            )
     console.print("[dim]Press Ctrl+C to stop[/dim]")
 
     def _ingest_and_discard(p: Path) -> None:
@@ -170,7 +232,12 @@ def watch(
 
             notify("Kurier", f"{p.name} → {result.route_name}")
 
-    watcher = Watcher(cfg.inbox_dir, _ingest_and_discard, llm_provider=cfg.llm.provider)
+    watcher = Watcher(
+        cfg.inbox_dir,
+        _ingest_and_discard,
+        llm_provider=cfg.llm.provider,
+        drain_existing=drain_existing,
+    )
     watcher.start()
 
 
@@ -555,21 +622,33 @@ def init(
         '[routes.code]\ntype = "folder"\n'
         f'path = "{base_dir}/Code"\n'
         'categories = ["code", "config", "script"]\n'
-        "confidence_threshold = 0.6\n"
+        "confidence_threshold = 0.6\n\n"
+        '[routes.notizen]\ntype = "folder"\n'
+        f'path = "{base_dir}/Notizen"\n'
+        'categories = ["notiz"]\n'
+        "confidence_threshold = 0.5\n"
     )
     path.write_text(default_config)
     console.print(f"\n[green]✓[/green] Config erstellt: {path}")
     console.print(f"[green]✓[/green] Eingangs-Ordner: {inbox_path}")
 
-    for route_name in ["Archiv", "Artikel", "Code"]:
+    for route_name in ["Archiv", "Artikel", "Code", "Notizen"]:
         route_dir = base_dir / route_name
         route_dir.mkdir(parents=True, exist_ok=True)
 
     if not quick:
         _post_init_checks(path)
-    return
 
-    _post_init_checks(path)
+    console.print("\n[bold]Nächster Schritt[/bold]")
+    console.print(
+        "[yellow]Auto-Sortierung ist noch aus.[/yellow] "
+        "Starte sie mit: [bold]kurier service on[/bold]"
+    )
+    console.print(
+        "[dim]Dabei werden vorhandene Dateien im Eingang jetzt auch direkt mitverarbeitet.[/dim]"
+    )
+    console.print("[dim]Für einen Einzeltest geht auch: kurier add /pfad/zur/datei[/dim]")
+    return
 
 
 def _post_init_checks(config_path: Path) -> None:
@@ -633,9 +712,29 @@ def _post_init_checks(config_path: Path) -> None:
         )
 
 
+def _doctor_directory_targets(cfg: ArkivConfig) -> list[tuple[str, Path]]:
+    """Collect directories that should exist for a healthy first-run setup."""
+    targets = [
+        ("Inbox", cfg.inbox_dir.expanduser()),
+        ("Review", cfg.review_dir.expanduser()),
+        ("Datenbank-Ordner", cfg.database.path.expanduser().parent),
+    ]
+
+    for name, route in cfg.routes.items():
+        if route.path:
+            targets.append((f"Route '{name}'", Path(route.path).expanduser()))
+
+    return targets
+
+
 @app.command()
 def doctor(
     config: Path | None = typer.Option(None, "--config", "-c"),
+    fix: bool = typer.Option(
+        False,
+        "--fix",
+        help="Lege fehlende Ordner aus der Config direkt an",
+    ),
 ) -> None:
     """Systemzustand prüfen — Config, Routen, LLM, Datenbank."""
     import tomllib
@@ -680,17 +779,63 @@ def doctor(
             fail("Config laden", str(e))
             cfg_valid = False
 
-    # Check 2: Route paths exist
+    # Check 2: Auto-Sortierung / Service
     if cfg is not None:
-        for name, route in cfg.routes.items():
-            if route.path:
-                rp = Path(route.path).expanduser()
-                if rp.exists():
-                    ok(f"Route '{name}'", str(rp))
-                else:
-                    warn(f"Route '{name}'", f"Verzeichnis fehlt: {rp}  (kurier init erstellt es)")
+        from arkiv import service
 
-    # Check 3: LLM reachable
+        try:
+            info = service.status()
+            backlog = _count_visible_inbox_files(cfg.inbox_dir)
+            review_backlog = _count_visible_inbox_files(cfg.review_dir)
+
+            if info.get("running"):
+                detail = "Hintergrunddienst läuft"
+                if backlog:
+                    noun = "Datei" if backlog == 1 else "Dateien"
+                    detail += f"; {backlog} {noun} warten gerade im Eingang"
+                ok("Auto-Sortierung", detail)
+            else:
+                detail = "Hintergrunddienst ist aus. Starte mit: `kurier service on`"
+                if backlog:
+                    noun = "Datei" if backlog == 1 else "Dateien"
+                    detail += f" ({backlog} {noun} warten im Eingang)"
+                warn("Auto-Sortierung", detail)
+
+            if backlog:
+                noun = "Datei" if backlog == 1 else "Dateien"
+                warn("Inbox", f"{backlog} {noun} liegen im Eingang")
+            else:
+                ok("Inbox", "Leer")
+
+            if review_backlog:
+                noun = "Datei" if review_backlog == 1 else "Dateien"
+                warn("Prüfen", f"{review_backlog} {noun} warten auf Sichtung")
+            else:
+                ok("Prüfen", "Leer")
+        except Exception as e:
+            warn("Auto-Sortierung", f"Status konnte nicht geprüft werden: {e}")
+
+    # Check 3: Required directories exist
+    if cfg is not None:
+        for label, directory in _doctor_directory_targets(cfg):
+            if directory.exists():
+                ok(label, str(directory))
+                continue
+
+            if fix:
+                try:
+                    directory.mkdir(parents=True, exist_ok=True)
+                    ok(label, f"Angelegt: {directory}")
+                except OSError as e:
+                    fail(label, f"Konnte nicht angelegt werden: {e}")
+            else:
+                warn(
+                    label,
+                    "Fehlt noch: "
+                    f"{directory}  (beim Erststart oft normal; `kurier doctor --fix` legt es an)",
+                )
+
+    # Check 4: LLM reachable
     if cfg is not None:
         if cfg.llm.provider == "ollama":
             ollama_url = (cfg.llm.base_url or "http://localhost:11434").rstrip("/")
@@ -712,7 +857,7 @@ def doctor(
         else:
             ok("LLM", f"{cfg.llm.provider} (API-Key via Env-Var)")
 
-    # Check 4: Custom categories have descriptions (if defined)
+    # Check 5: Custom categories have descriptions (if defined)
     if cfg is not None and cfg.categories:
         empty_cats = [name for name, desc in cfg.categories.items() if not desc or not desc.strip()]
         if empty_cats:
@@ -720,7 +865,7 @@ def doctor(
         else:
             ok("Kategorie-Beschreibungen", "Alle vorhanden")
 
-    # Check 5: Pending/failed items in DB
+    # Check 6: Pending/failed items in DB
     if cfg is not None and cfg.database.path.exists():
         try:
             from arkiv.db.store import Store

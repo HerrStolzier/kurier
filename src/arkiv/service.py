@@ -25,7 +25,7 @@ Description=Kurier File Watcher
 After=network.target
 
 [Service]
-ExecStart={kurier_path} watch --verbose
+ExecStart={kurier_path} watch --verbose --drain-existing
 Restart=on-failure
 RestartSec=10
 
@@ -115,7 +115,7 @@ def _install_macos(kurier_path: str) -> tuple[bool, str]:
     PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
     plist: dict[str, object] = {
         "Label": "local.kurier.watch",
-        "ProgramArguments": [kurier_path, "watch", "--verbose"],
+        "ProgramArguments": [kurier_path, "watch", "--verbose", "--drain-existing"],
         "RunAtLoad": True,
         "KeepAlive": True,
         "StandardOutPath": str(LOG_PATH_MACOS),

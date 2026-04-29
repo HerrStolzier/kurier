@@ -458,6 +458,7 @@ def _configure_routes() -> dict[str, Any]:
             ["artikel", "paper", "tutorial", "dokumentation"],
         ),
         ("code", "Code snippets, configs", ["code", "config", "script"]),
+        ("notizen", "Notes, memos, reminders", ["notiz"]),
     ]
 
     for route_name, description, categories in suggestions:

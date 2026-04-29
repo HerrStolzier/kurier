@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TMPDIR="$(mktemp -d)"
+trap 'rm -rf "$TMPDIR"' EXIT
+
+find_python() {
+  local candidate
+  for candidate in \
+    "${PYTHON_BIN:-}" \
+    "$(uv python find 3.13 2>/dev/null || true)" \
+    "$(uv python find 3.12 2>/dev/null || true)" \
+    "$(uv python find 3.11 2>/dev/null || true)" \
+    "$(command -v python3.13 2>/dev/null || true)" \
+    "$(command -v python3.12 2>/dev/null || true)" \
+    "$(command -v python3.11 2>/dev/null || true)" \
+    "$(command -v python3 2>/dev/null || true)"; do
+    if [[ -n "$candidate" ]] && "$candidate" -c 'import sys; raise SystemExit(sys.version_info < (3, 11))'; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+PYTHON_BIN="$(find_python)"
+"$PYTHON_BIN" -m venv "$TMPDIR/venv"
+# shellcheck disable=SC1091
+source "$TMPDIR/venv/bin/activate"
+
+python -m pip install --upgrade pip >/dev/null
+python -m pip install -e "$ROOT" >/dev/null
+
+export HOME="$TMPDIR/home"
+mkdir -p "$HOME"
+CONFIG="$TMPDIR/config.toml"
+
+kurier --version
+kurier init --quick --config "$CONFIG"
+kurier doctor --fix --config "$CONFIG"
+kurier status --config "$CONFIG"
+
+echo "Editable install smoke finished."

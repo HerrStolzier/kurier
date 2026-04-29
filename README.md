@@ -70,6 +70,7 @@ kurier undo                    # Undo last routing action
 kurier export --format csv     # Export all items as CSV
 kurier doctor                  # Check system health
 kurier doctor --fix            # Create missing config directories
+kurier doctor --repair-db      # Back up DB and rebuild derived search indexes
 kurier init                    # Interactive setup wizard
 ```
 
@@ -189,12 +190,12 @@ src/arkiv/
 
 ## Current Product Status
 
-This is the honest status snapshot as of **2026-04-10**:
+This is the honest status snapshot as of **2026-04-29**:
 
 | Status | What it means in practice |
 |--------|----------------------------|
 | **Stable** | Fresh install, `kurier init`, `kurier doctor --fix`, file intake via `kurier add`, folder routing, watcher flow, API server, dashboard review fixes, undo/export, and the basic local-first archive flow have been exercised end-to-end. |
-| **Usable** | AI-assisted memory search is integrated and works in the product, but it still depends heavily on model quality and has not yet gone through deeper comparative benchmarking. Webhook routing/plugin delivery has now been exercised against a live local endpoint, so it is no longer just theoretical, but external SaaS targets still have lighter validation than the core flow. |
+| **Usable** | AI-assisted memory search is integrated and works in the product, but it still depends heavily on model quality and has not yet gone through deeper comparative benchmarking. Webhook routing/plugin delivery has been exercised against a live local endpoint, and the private Raspberry Pi n8n demo path is prepared. The n8n claim should only be promoted after a real Pi POST has been captured. |
 | **Experimental** | TUI support is present and starts cleanly, but deeper interactive coverage is still lighter than the core CLI/dashboard path. |
 | **Deferred** | Browser extension work is intentionally out of scope for now. Email inlet support remains an optional-later item rather than part of the current core experience. |
 
@@ -231,16 +232,15 @@ cd kurier
 uv venv && source .venv/bin/activate
 uv pip install -e ".[dev]"
 
-# Run tests
-pytest tests/ -x -q
+# Run the full local release check
+scripts/release-check
 
-# Plugin tests
-uv pip install -e plugins/arkiv-webhook
-pytest --rootdir=plugins/arkiv-webhook --override-ini="testpaths=plugins/arkiv-webhook/tests" plugins/arkiv-webhook/tests/
+# Fresh install smoke tests
+scripts/smoke-editable-install
+scripts/smoke-wheel-install
 
-# Lint + type check
-ruff check src/
-mypy src/arkiv/ --ignore-missing-imports
+# Optional private n8n demo receiver on a Raspberry Pi
+PI_HOST=raspberrypi.local PI_USER=pi scripts/pi-n8n-setup
 ```
 
 ## Troubleshooting
@@ -252,9 +252,10 @@ If local development feels "almost working" but commands fail in strange ways, t
 - **Plugin tests cannot import `arkiv_webhook`**: install the plugin locally first with `uv pip install -e plugins/arkiv-webhook`.
 - **Plugin tests fail when mixed with core tests**: run them separately with `pytest --rootdir=plugins/arkiv-webhook --override-ini="testpaths=plugins/arkiv-webhook/tests" plugins/arkiv-webhook/tests/`.
 - **`kurier doctor` warns about missing folders on a fresh setup**: that is often just first-run state, not a broken install. Run `kurier doctor --fix` once to create the configured directories.
+- **`kurier status` says the database image is malformed**: if `sqlite3 integrity_check` is still ok, this is often a broken derived FTS search index, not lost item data. Stop the service, then run `kurier doctor --repair-db`; it creates a backup before rebuilding the derived index.
 - **Classification changes look fine in unit tests but fail in real usage**: mocked tests do not prove provider wiring. Run at least one real-provider smoke check after touching classification, provider integration, or plugin hooks.
 
-For plugin-specific details, see the [Plugin Guide](docs/plugins.md).
+For plugin-specific details, see the [Plugin Guide](docs/plugins.md). For the private n8n demo receiver, see [docs/n8n-raspberry-pi-demo.md](docs/n8n-raspberry-pi-demo.md).
 
 ## License
 

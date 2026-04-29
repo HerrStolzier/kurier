@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import sqlite3
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -86,6 +88,24 @@ CREATE VIRTUAL TABLE IF NOT EXISTS items_vec USING vec0(
 );
 """
 
+DROP_FTS_STATEMENTS = (
+    "DROP TRIGGER IF EXISTS items_ai",
+    "DROP TRIGGER IF EXISTS items_ad",
+    "DROP TRIGGER IF EXISTS items_au",
+    "DROP TABLE IF EXISTS items_fts",
+)
+
+
+@dataclass(frozen=True)
+class RepairResult:
+    """Summary of a derived-index repair run."""
+
+    backup_path: Path | None
+    integrity_check: str
+    items_backfilled: int
+    fts_rebuilt: bool
+    vector_warning: str | None = None
+
 
 def _load_sqlite_vec(conn: sqlite3.Connection) -> bool:
     """Try to load the sqlite-vec extension. Returns True if available."""
@@ -122,6 +142,130 @@ def _display_title(
     return _path_name(original_path) or original_path
 
 
+def _ensure_title_columns(conn: sqlite3.Connection) -> list[str]:
+    """Add memory-search title columns for older databases."""
+    added = []
+    columns = (
+        ("suggested_filename", "TEXT"),
+        ("destination_name", "TEXT"),
+        ("display_title", "TEXT"),
+    )
+    for column_name, column_type in columns:
+        try:
+            conn.execute(f"ALTER TABLE items ADD COLUMN {column_name} {column_type}")
+            added.append(column_name)
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e).lower():
+                logger.debug("Title column migration for %s: %s", column_name, e)
+    return added
+
+
+def _backfill_title_fields(conn: sqlite3.Connection) -> int:
+    """Fill derived title fields for existing rows after migrations."""
+    rows = conn.execute(
+        """SELECT id, original_path, destination, suggested_filename,
+                  destination_name, display_title
+           FROM items"""
+    ).fetchall()
+
+    updated = 0
+    for row in rows:
+        destination_name = row["destination_name"] or _path_name(row["destination"])
+        display_title = row["display_title"] or _display_title(
+            suggested_filename=row["suggested_filename"],
+            destination_name=destination_name,
+            original_path=row["original_path"],
+        )
+        if destination_name != (row["destination_name"] or "") or display_title != (
+            row["display_title"] or ""
+        ):
+            conn.execute(
+                "UPDATE items SET destination_name = ?, display_title = ? WHERE id = ?",
+                (destination_name, display_title, row["id"]),
+            )
+            updated += 1
+
+    return updated
+
+
+def _vector_health_warning(conn: sqlite3.Connection) -> str | None:
+    """Return a warning when vector tables exist but cannot be read."""
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'items_vec'"
+    ).fetchone()
+    if row is None:
+        return None
+
+    try:
+        conn.execute("SELECT COUNT(*) FROM items_vec").fetchone()
+    except sqlite3.DatabaseError as e:
+        if "no such module: vec0" in str(e).lower():
+            return None
+        return f"Vector index konnte nicht geprüft werden: {e}"
+    return None
+
+
+def _drop_fts(conn: sqlite3.Connection) -> None:
+    """Drop FTS artifacts without using executescript inside repair transactions."""
+    for statement in DROP_FTS_STATEMENTS:
+        conn.execute(statement)
+
+
+def _create_fts(conn: sqlite3.Connection) -> None:
+    """Create FTS artifacts without using executescript inside repair transactions."""
+    conn.execute(
+        """CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
+            original_path, suggested_filename, destination_name, display_title,
+            category, summary, tags, content_text,
+            content='items',
+            content_rowid='id'
+        )"""
+    )
+    conn.execute(
+        """CREATE TRIGGER IF NOT EXISTS items_ai AFTER INSERT ON items BEGIN
+            INSERT INTO items_fts(
+                rowid, original_path, suggested_filename, destination_name,
+                display_title, category, summary, tags, content_text
+            )
+            VALUES (
+                new.id, new.original_path, new.suggested_filename, new.destination_name,
+                new.display_title, new.category, new.summary, new.tags, new.content_text
+            );
+        END"""
+    )
+    conn.execute(
+        """CREATE TRIGGER IF NOT EXISTS items_ad AFTER DELETE ON items BEGIN
+            INSERT INTO items_fts(
+                items_fts, rowid, original_path, suggested_filename, destination_name,
+                display_title, category, summary, tags, content_text
+            ) VALUES (
+                'delete', old.id, old.original_path, old.suggested_filename,
+                old.destination_name, old.display_title, old.category, old.summary,
+                old.tags, old.content_text
+            );
+        END"""
+    )
+    conn.execute(
+        """CREATE TRIGGER IF NOT EXISTS items_au AFTER UPDATE ON items BEGIN
+            INSERT INTO items_fts(
+                items_fts, rowid, original_path, suggested_filename, destination_name,
+                display_title, category, summary, tags, content_text
+            ) VALUES (
+                'delete', old.id, old.original_path, old.suggested_filename,
+                old.destination_name, old.display_title, old.category, old.summary,
+                old.tags, old.content_text
+            );
+            INSERT INTO items_fts(
+                rowid, original_path, suggested_filename, destination_name,
+                display_title, category, summary, tags, content_text
+            ) VALUES (
+                new.id, new.original_path, new.suggested_filename, new.destination_name,
+                new.display_title, new.category, new.summary, new.tags, new.content_text
+            );
+        END"""
+    )
+
+
 class Store:
     """SQLite-backed item store with full-text search and optional vector search."""
 
@@ -132,28 +276,92 @@ class Store:
         self.db_path = db_path
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
+        try:
+            # Restrict database file to owner-only access
+            if db_path.exists():
+                with contextlib.suppress(OSError):
+                    os.chmod(db_path, 0o600)
+            self._conn.row_factory = sqlite3.Row
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA foreign_keys=ON")
+            self._conn.executescript(TABLE_SCHEMA)
+            self._migrate_status_column_if_needed()
+            self._migrate_title_columns_if_needed()
+            self._migrate_fts_if_needed()
+            self._conn.executescript(FTS_SCHEMA)
+            self._backfill_title_fields_if_needed()
 
-        # Restrict database file to owner-only access
-        if db_path.exists():
-            with contextlib.suppress(OSError):
-                os.chmod(db_path, 0o600)
-        self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute("PRAGMA foreign_keys=ON")
-        self._conn.executescript(TABLE_SCHEMA)
-        self._migrate_status_column_if_needed()
-        self._migrate_title_columns_if_needed()
-        self._migrate_fts_if_needed()
-        self._conn.executescript(FTS_SCHEMA)
-        self._backfill_title_fields_if_needed()
+            # Try to enable vector search
+            self._vec_enabled = _load_sqlite_vec(self._conn)
+            if self._vec_enabled:
+                self._conn.executescript(VEC_SCHEMA)
+                logger.info("Vector search enabled (sqlite-vec)")
+            else:
+                logger.info("Vector search disabled (install sqlite-vec for semantic search)")
+        except Exception:
+            self._conn.close()
+            raise
 
-        # Try to enable vector search
-        self._vec_enabled = _load_sqlite_vec(self._conn)
-        if self._vec_enabled:
-            self._conn.executescript(VEC_SCHEMA)
-            logger.info("Vector search enabled (sqlite-vec)")
-        else:
-            logger.info("Vector search disabled (install sqlite-vec for semantic search)")
+    @staticmethod
+    def repair_derived_indexes(db_path: Path, *, backup: bool = True) -> RepairResult:
+        """Repair rebuildable derived data without deleting item rows.
+
+        This intentionally rebuilds the FTS table and triggers from the canonical
+        `items` table. Vector embeddings are not dropped automatically because the
+        current schema stores embeddings only in `items_vec`.
+        """
+        if not db_path.exists():
+            raise FileNotFoundError(db_path)
+
+        backup_path = None
+        if backup:
+            timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S%f")
+            backup_path = db_path.with_name(f"{db_path.name}.{timestamp}.bak")
+            shutil.copy2(db_path, backup_path)
+            for suffix in ("-wal", "-shm"):
+                sidecar = db_path.with_name(f"{db_path.name}{suffix}")
+                if sidecar.exists():
+                    shutil.copy2(sidecar, backup_path.with_name(f"{backup_path.name}{suffix}"))
+
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        try:
+            integrity_rows = conn.execute("PRAGMA integrity_check").fetchall()
+            integrity_messages = [str(row[0]) for row in integrity_rows] or ["unknown"]
+            integrity = "\n".join(integrity_messages)
+            integrity_ok = len(integrity_messages) == 1 and integrity_messages[0].lower() == "ok"
+            fts_only_integrity_error = all(
+                "items_fts" in message.lower() or "fts5" in message.lower()
+                for message in integrity_messages
+            )
+            if not integrity_ok and not fts_only_integrity_error:
+                raise sqlite3.DatabaseError(f"integrity_check failed: {integrity}")
+
+            vector_warning = _vector_health_warning(conn)
+
+            conn.execute("BEGIN")
+            try:
+                _drop_fts(conn)
+                conn.execute(TABLE_SCHEMA)
+                _ensure_title_columns(conn)
+                items_backfilled = _backfill_title_fields(conn)
+                _create_fts(conn)
+                conn.execute("INSERT INTO items_fts(items_fts) VALUES('rebuild')")
+            except Exception:
+                conn.rollback()
+                raise
+            else:
+                conn.commit()
+
+            return RepairResult(
+                backup_path=backup_path,
+                integrity_check=integrity,
+                items_backfilled=items_backfilled,
+                fts_rebuilt=True,
+                vector_warning=vector_warning,
+            )
+        finally:
+            conn.close()
 
     def _migrate_fts_if_needed(self) -> None:
         """Recreate FTS table if schema has changed."""
@@ -192,48 +400,18 @@ class Store:
 
     def _migrate_title_columns_if_needed(self) -> None:
         """Add memory-search title columns for older databases."""
-        columns = (
-            ("suggested_filename", "TEXT"),
-            ("destination_name", "TEXT"),
-            ("display_title", "TEXT"),
-        )
-        for column_name, column_type in columns:
-            try:
-                self._conn.execute(f"ALTER TABLE items ADD COLUMN {column_name} {column_type}")
-                self._conn.commit()
-                logger.info("Migrated items table: added %s column", column_name)
-            except sqlite3.OperationalError as e:
-                if "duplicate column name" not in str(e).lower():
-                    logger.debug("Title column migration for %s: %s", column_name, e)
+        added = _ensure_title_columns(self._conn)
+        if added:
+            self._conn.commit()
+        for column_name in added:
+            logger.info("Migrated items table: added %s column", column_name)
 
     def _backfill_title_fields_if_needed(self) -> None:
         """Fill derived title fields for existing rows after migrations."""
-        rows = self._conn.execute(
-            """SELECT id, original_path, destination, suggested_filename,
-                      destination_name, display_title
-               FROM items"""
-        ).fetchall()
-
-        updated = False
-        for row in rows:
-            destination_name = row["destination_name"] or _path_name(row["destination"])
-            display_title = row["display_title"] or _display_title(
-                suggested_filename=row["suggested_filename"],
-                destination_name=destination_name,
-                original_path=row["original_path"],
-            )
-            if destination_name != (row["destination_name"] or "") or display_title != (
-                row["display_title"] or ""
-            ):
-                self._conn.execute(
-                    "UPDATE items SET destination_name = ?, display_title = ? WHERE id = ?",
-                    (destination_name, display_title, row["id"]),
-                )
-                updated = True
-
+        updated = _backfill_title_fields(self._conn)
         if updated:
             self._conn.commit()
-            logger.info("Backfilled title fields for existing items")
+            logger.info("Backfilled title fields for %d existing item(s)", updated)
 
     @property
     def vec_enabled(self) -> bool:

@@ -28,13 +28,13 @@ jobs:
           pip install -e plugins/arkiv-webhook
 
       - name: Lint with ruff
-        run: ruff check src/
+        run: ruff check src/ tests/
 
       - name: Type check with mypy
         run: mypy src/arkiv/ --ignore-missing-imports
 
       - name: Run core tests
-        run: pytest tests/ --cov=arkiv --cov-report=xml
+        run: pytest tests/ -x -q --cov=arkiv --cov-report=xml
 
       - name: Run plugin tests
         run: pytest --rootdir=plugins/arkiv-webhook --override-ini="testpaths=plugins/arkiv-webhook/tests" plugins/arkiv-webhook/tests/
@@ -53,4 +53,4 @@ jobs:
         run: pip install ruff
 
       - name: Ruff format check
-        run: ruff format --check src/
+        run: ruff format --check src/ tests/

@@ -61,6 +61,17 @@ def _drain_existing_inbox(cfg: ArkivConfig) -> tuple[int, int]:
     return processed, failed
 
 
+def _database_repair_hint(error: Exception) -> str:
+    """Plain-language hint for repairable local database/index errors."""
+    return (
+        f"{error}\n"
+        "Die Item-Datenbank konnte nicht vollständig geöffnet werden. "
+        "Wenn `sqlite3 integrity_check` ok ist, ist oft nur der Suchindex betroffen.\n"
+        "Lege ein Backup an und repariere abgeleitete Suchdaten mit: "
+        "`kurier doctor --repair-db`"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Service sub-app
 # ---------------------------------------------------------------------------
@@ -469,7 +480,13 @@ def status(
         console.print("[dim]No items processed yet.[/dim]")
         return
 
-    store = Store(cfg.database.path)
+    try:
+        store = Store(cfg.database.path)
+    except Exception as e:
+        console.print("[yellow]Datenbank konnte nicht geöffnet werden.[/yellow]")
+        console.print(f"[dim]{_database_repair_hint(e)}[/dim]")
+        raise typer.Exit(1) from None
+
     s = store.stats()
 
     console.print(f"[bold]Total items:[/bold] {s['total_items']}\n")
@@ -735,6 +752,11 @@ def doctor(
         "--fix",
         help="Lege fehlende Ordner aus der Config direkt an",
     ),
+    repair_db: bool = typer.Option(
+        False,
+        "--repair-db",
+        help="Lege ein Backup an und baue abgeleitete Datenbank-Suchindizes neu auf",
+    ),
 ) -> None:
     """Systemzustand prüfen — Config, Routen, LLM, Datenbank."""
     import tomllib
@@ -772,12 +794,48 @@ def doctor(
         cfg_valid = False
 
     cfg = None
+    repair_failed = repair_db and not cfg_valid
     if cfg_valid:
         try:
             cfg = ArkivConfig.load(config_path)
         except Exception as e:
             fail("Config laden", str(e))
             cfg_valid = False
+            repair_failed = repair_db
+
+    if cfg is not None and repair_db:
+        if not cfg.database.path.exists():
+            warn("Datenbank-Reparatur", "Keine Datenbank vorhanden; nichts zu reparieren")
+        else:
+            from arkiv import service
+
+            try:
+                info = service.status()
+            except Exception:
+                info = {"running": False}
+
+            if info.get("running"):
+                fail(
+                    "Datenbank-Reparatur",
+                    "Hintergrunddienst läuft. Bitte zuerst stoppen: `kurier service off`",
+                )
+                repair_failed = True
+            else:
+                try:
+                    from arkiv.db.store import Store
+
+                    result = Store.repair_derived_indexes(cfg.database.path)
+                    detail = (
+                        "FTS neu aufgebaut; "
+                        f"{result.items_backfilled} Eintrag(e) nachgefüllt; "
+                        f"Backup: {result.backup_path}"
+                    )
+                    if result.vector_warning:
+                        detail += f"; Hinweis: {result.vector_warning}"
+                    ok("Datenbank-Reparatur", detail)
+                except Exception as e:
+                    fail("Datenbank-Reparatur", str(e))
+                    repair_failed = True
 
     # Check 2: Auto-Sortierung / Service
     if cfg is not None:
@@ -882,11 +940,13 @@ def doctor(
             else:
                 ok("DB-Status", f"{len(all_items)} Einträge, keine Fehler")
         except Exception as e:
-            warn("Datenbank", str(e))
+            warn("Datenbank", _database_repair_hint(e))
     elif cfg is not None:
         ok("Datenbank", "Noch leer (kein Element verarbeitet)")
 
     console.print(check_table)
+    if repair_failed:
+        raise typer.Exit(1)
 
 
 @app.command()

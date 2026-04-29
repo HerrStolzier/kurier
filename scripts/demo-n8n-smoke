@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+WEBHOOK_URL="${KURIER_N8N_WEBHOOK_URL:-${1:-}}"
+
+if [[ -z "$WEBHOOK_URL" ]]; then
+  echo "Usage: KURIER_N8N_WEBHOOK_URL=http://PI_HOST:5678/webhook/kurier-demo $0" >&2
+  echo "   or: $0 http://PI_HOST:5678/webhook/kurier-demo" >&2
+  exit 2
+fi
+
+curl -fsS \
+  -X POST \
+  -H "Content-Type: application/json" \
+  --data '{
+    "event": "item_routed",
+    "item": {
+      "original_path": "demo/rechnung.txt",
+      "category": "rechnung",
+      "confidence": 0.91,
+      "summary": "Harmlose Demo-Rechnung fuer den n8n-Smoke-Test",
+      "tags": ["demo", "rechnung"],
+      "language": "de",
+      "route_name": "n8n_demo"
+    },
+    "timestamp": "2026-04-29T00:00:00+00:00"
+  }' \
+  "$WEBHOOK_URL"
+
+echo
+echo "n8n webhook smoke POST sent."

@@ -26,7 +26,7 @@ def test_model_recommendations_sorted_by_ram() -> None:
 def test_model_recommendations_have_required_fields() -> None:
     for entry in MODEL_RECOMMENDATIONS:
         assert len(entry) == 4, f"Entry should have 4 fields: {entry}"
-        min_ram, model_id, name, note = entry
+        min_ram, model_id, _name, _note = entry
         assert isinstance(min_ram, int)
         assert isinstance(model_id, str)
         assert len(model_id) > 0

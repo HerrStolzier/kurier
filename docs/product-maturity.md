@@ -1,6 +1,6 @@
 # Product Maturity Snapshot
 
-Last updated: **2026-04-10**
+Last updated: **2026-04-29**
 
 This document is meant to answer one practical question:
 
@@ -24,7 +24,7 @@ This document is meant to answer one practical question:
 | Local archive search (keyword / classic search path) | **Stable** | SQLite-backed search is part of the long-standing core architecture and remains inside the tested product path. |
 | AI-assisted memory search | **Usable** | The feature is integrated, stores richer signals, and returns human-readable match reasons. It works in real flows, but model quality still matters and deeper benchmark work is still queued. |
 | TUI | **Usable** | The TUI launches and remains a meaningful interface, but current validation is still closer to a start-smoke than to full interaction-depth coverage. |
-| Webhook plugin | **Usable** | The plugin is a sensible extension path for Slack, Discord, n8n, Zapier, or custom endpoints, and the route has now been re-verified against a live local HTTP endpoint with a real POST payload. External third-party targets are still less proven than the core local flow, so this is not yet "stable". |
+| Webhook plugin | **Usable** | The plugin is a sensible extension path for Slack, Discord, n8n, Zapier, or custom endpoints, and the route has been re-verified against a live local HTTP endpoint with a real POST payload. The private Raspberry Pi n8n demo path is prepared, but the status should not claim "real n8n receiver verified" until the Pi is reachable and n8n captures a real Kurier POST. |
 | Browser extension | **Deferred** | Intentionally removed from the near-term roadmap to keep focus on the core local intake, review, and search flow. |
 | Email inlet | **Deferred** | Still a valid future extension, but not part of the current core product promise. |
 
@@ -43,15 +43,15 @@ If you want to demo the project honestly, the best framing is:
 
 - core local capture, routing, review, and search: ready to show
 - AI memory search: ready to show with clear caveats about model quality
-- webhook integrations: promising extension, but not yet a fully proven flagship path
+- webhook integrations: promising extension; local HTTP delivery is proven, and the private n8n receiver is the next proof step
 
 ## What should likely happen next
 
-The most useful next validation step would be a real third-party webhook smoke test against one representative external target such as Slack, Discord, n8n, or a hosted generic endpoint.
+The most useful next validation step would be the private Raspberry Pi n8n smoke test described in `docs/n8n-raspberry-pi-demo.md`.
 
 Why that matters:
 
-- it would turn the webhook path from "locally proven" into something much easier to claim confidently across real integrations
+- it would turn the webhook path from "local HTTP proven" into "real n8n receiver proven"
 - it keeps product work focused on trust and proof, not just adding more surface area
 
 After that, the next quality step would be deeper evaluation work for AI-assisted memory search, especially around multilingual and German-heavy usage.

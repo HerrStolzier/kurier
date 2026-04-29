@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ -z "${PI_HOST:-}" ]]; then
+  echo "Set PI_HOST first, for example: PI_HOST=raspberrypi.local $0" >&2
+  exit 2
+fi
+
+PI_USER="${PI_USER:-pi}"
+PI_SSH_PORT="${PI_SSH_PORT:-22}"
+N8N_PORT="${N8N_PORT:-5678}"
+N8N_IMAGE="${N8N_IMAGE:-docker.n8n.io/n8nio/n8n:stable}"
+SSH_TARGET="${PI_USER}@${PI_HOST}"
+SSH_OPTS=(-p "$PI_SSH_PORT" -o ConnectTimeout=8 -o ServerAliveInterval=15)
+
+echo "== SSH preflight: ${SSH_TARGET} =="
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" '
+  set -e
+  echo "host=$(hostname)"
+  echo "kernel=$(uname -srmo)"
+  echo "arch=$(dpkg --print-architecture 2>/dev/null || uname -m)"
+  df -h /
+  timedatectl 2>/dev/null | sed -n "/Time zone/p" || true
+'
+
+echo
+echo "== Sudo check =="
+ssh -t "${SSH_OPTS[@]}" "$SSH_TARGET" "sudo -v"
+
+echo
+echo "== Configure Pi + n8n =="
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" \
+  "PI_HOST='$PI_HOST' N8N_PORT='$N8N_PORT' N8N_IMAGE='$N8N_IMAGE' bash -s" <<'REMOTE'
+set -euo pipefail
+
+if command -v timedatectl >/dev/null 2>&1; then
+  sudo timedatectl set-timezone Europe/Berlin
+fi
+
+if command -v hostnamectl >/dev/null 2>&1; then
+  sudo hostnamectl set-hostname kurier-n8n-pi
+fi
+
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl gnupg openssl
+
+if ! command -v docker >/dev/null 2>&1; then
+  curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
+  sudo sh /tmp/get-docker.sh
+fi
+
+sudo systemctl enable --now docker
+
+if ! sudo docker compose version >/dev/null 2>&1; then
+  sudo apt-get install -y docker-compose-plugin
+fi
+
+if ! groups "$USER" | grep -qw docker; then
+  sudo usermod -aG docker "$USER"
+fi
+
+sudo mkdir -p /opt/n8n/data /opt/n8n/local-files
+sudo chown -R 1000:1000 /opt/n8n/data /opt/n8n/local-files
+
+if sudo test -f /opt/n8n/.env; then
+  N8N_ENCRYPTION_KEY="$(sudo awk -F= '$1=="N8N_ENCRYPTION_KEY"{print $2}' /opt/n8n/.env)"
+else
+  N8N_ENCRYPTION_KEY="$(openssl rand -hex 32)"
+fi
+
+ENV_TMP="$(mktemp)"
+cat > "$ENV_TMP" <<EOF
+PI_HOST=${PI_HOST}
+N8N_PORT=${N8N_PORT}
+N8N_IMAGE=${N8N_IMAGE}
+N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+TZ=Europe/Berlin
+GENERIC_TIMEZONE=Europe/Berlin
+EOF
+sudo install -m 0600 -o root -g root "$ENV_TMP" /opt/n8n/.env
+rm -f "$ENV_TMP"
+
+COMPOSE_TMP="$(mktemp)"
+cat > "$COMPOSE_TMP" <<'EOF'
+services:
+  n8n:
+    image: ${N8N_IMAGE}
+    container_name: kurier-n8n
+    restart: unless-stopped
+    ports:
+      - "${N8N_PORT}:5678"
+    env_file:
+      - .env
+    environment:
+      N8N_HOST: ${PI_HOST}
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: http://${PI_HOST}:5678/
+      N8N_EDITOR_BASE_URL: http://${PI_HOST}:5678/
+      GENERIC_TIMEZONE: Europe/Berlin
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      N8N_RUNNERS_ENABLED: "true"
+    volumes:
+      - /opt/n8n/data:/home/node/.n8n
+      - /opt/n8n/local-files:/files
+EOF
+sudo install -m 0644 -o root -g root "$COMPOSE_TMP" /opt/n8n/docker-compose.yml
+rm -f "$COMPOSE_TMP"
+
+cd /opt/n8n
+sudo docker compose --env-file /opt/n8n/.env -f /opt/n8n/docker-compose.yml up -d
+
+echo "Waiting for n8n on localhost:${N8N_PORT} ..."
+for _ in $(seq 1 45); do
+  if curl -fsS "http://127.0.0.1:${N8N_PORT}/" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 2
+done
+curl -fsS "http://127.0.0.1:${N8N_PORT}/" >/dev/null
+
+IMAGE_ID="$(sudo docker inspect --format '{{.Image}}' kurier-n8n)"
+N8N_VERSION="$(sudo docker exec kurier-n8n n8n --version 2>/dev/null || true)"
+DEPLOY_TMP="$(mktemp)"
+cat > "$DEPLOY_TMP" <<EOF
+# Kurier n8n Deployment
+
+Updated: $(date -Iseconds)
+URL: http://${PI_HOST}:${N8N_PORT}/
+Webhook URL: http://${PI_HOST}:${N8N_PORT}/webhook/kurier-demo
+Image: ${N8N_IMAGE}
+Image ID: ${IMAGE_ID}
+n8n version: ${N8N_VERSION}
+Network: private LAN only; no router port forwarding configured by this script.
+EOF
+sudo install -m 0644 -o root -g root "$DEPLOY_TMP" /opt/n8n/DEPLOYMENT.md
+rm -f "$DEPLOY_TMP"
+
+sudo docker compose --env-file /opt/n8n/.env -f /opt/n8n/docker-compose.yml ps
+cat /opt/n8n/DEPLOYMENT.md
+REMOTE
+
+echo
+echo "== Local reachability check =="
+curl -fsS "http://${PI_HOST}:${N8N_PORT}/" >/dev/null
+echo "n8n is reachable at http://${PI_HOST}:${N8N_PORT}/"

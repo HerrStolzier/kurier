@@ -1,34 +1,56 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="de" class="h-full">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Kurier — Dashboard</title>
+    <meta name="kurier-csrf-token" content="{{ csrf_token }}" />
     <!-- Tailwind CSS — pre-built locally, no CDN request needed.
          Rebuild with: cd src/arkiv/dashboard && ./node_modules/.bin/tailwindcss -i input.css -o static/styles.css --minify -->
-    <link rel="stylesheet" href="/dashboard/static/styles.css">
+    <link rel="stylesheet" href="/dashboard/static/styles.css" />
     <!-- HTMX served locally — no external request -->
     <script src="/dashboard/static/htmx.min.js"></script>
-</head>
-<body class="h-full bg-arkiv-950 text-gray-100">
+    <script>
+      document.addEventListener("htmx:configRequest", function (event) {
+        var token = document.querySelector(
+          'meta[name="kurier-csrf-token"]',
+        ).content;
+        event.detail.headers["x-kurier-csrf"] = token;
+      });
+    </script>
+  </head>
+  <body class="h-full bg-arkiv-950 text-gray-100">
     <!-- Nav -->
     <nav class="bg-arkiv-900 border-b border-arkiv-800 px-6 py-4">
-        <div class="max-w-6xl mx-auto flex items-center justify-between">
-            <div class="flex items-center gap-3">
-                <div class="w-8 h-8 bg-arkiv-500 rounded-lg flex items-center justify-center font-bold text-white text-sm">L</div>
-                <h1 class="text-xl font-semibold text-white">Kurier</h1>
-                <span class="text-xs text-gray-500 bg-arkiv-800 px-2 py-0.5 rounded">{{ version }}</span>
-            </div>
-            <div class="flex items-center gap-4 text-sm text-gray-400">
-                <a href="/docs" target="_blank" class="hover:text-white transition">API-Doku</a>
-                <a href="https://github.com/HerrStolzier/kurier" target="_blank" class="hover:text-white transition">GitHub</a>
-            </div>
+      <div class="max-w-6xl mx-auto flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div
+            class="w-8 h-8 bg-arkiv-500 rounded-lg flex items-center justify-center font-bold text-white text-sm"
+          >
+            L
+          </div>
+          <h1 class="text-xl font-semibold text-white">Kurier</h1>
+          <span class="text-xs text-gray-500 bg-arkiv-800 px-2 py-0.5 rounded"
+            >{{ version }}</span
+          >
         </div>
+        <div class="flex items-center gap-4 text-sm text-gray-400">
+          <a href="/docs" target="_blank" class="hover:text-white transition"
+            >API-Doku</a
+          >
+          <a
+            href="https://github.com/HerrStolzier/kurier"
+            target="_blank"
+            class="hover:text-white transition"
+            >GitHub</a
+          >
+        </div>
+      </div>
     </nav>
 
     <!-- Main content -->
     <main class="max-w-6xl mx-auto px-6 py-8 space-y-8">
-        {% block content %}{% endblock %}
+      {% block content %}{% endblock %}
     </main>
-</body>
+  </body>
 </html>

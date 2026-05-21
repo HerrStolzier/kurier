@@ -36,6 +36,9 @@ coverage.xml
 # Ruff
 .ruff_cache/
 
+# Agent-local run logs
+.agents/
+
 # Lotse data (don't commit user data)
 *.db
 *.db-journal

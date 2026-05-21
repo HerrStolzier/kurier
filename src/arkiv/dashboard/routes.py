@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -18,6 +19,8 @@ from arkiv.application.review import confirm_review_item, correct_review_item, g
 from arkiv.application.search import search_items as search_items_workflow
 from arkiv.application.status import get_recent_items, get_status
 from arkiv.core.upload import validate_and_save
+
+logger = logging.getLogger(__name__)
 
 
 def _from_json(value: str | None) -> list[str]:
@@ -41,11 +44,19 @@ router = APIRouter(prefix="/dashboard")
 
 # HTMX served locally for privacy (no CDN request)
 _static_app = StaticFiles(directory=str(_static_dir))
+_csrf_token = ""
+
+
+def set_csrf_token(token: str) -> None:
+    """Set the per-process CSRF token used by dashboard templates."""
+    global _csrf_token
+    _csrf_token = token
 
 
 def _render(template_name: str, **context: Any) -> HTMLResponse:
     """Render a Jinja2 template and return as HTML response."""
     template = _jinja.get_template(template_name)
+    context.setdefault("csrf_token", _csrf_token)
     html = template.render(**context)
     return HTMLResponse(html)
 
@@ -121,37 +132,39 @@ async def upload_partial(
     # Validate and stream to temp file (raises HTTPException on invalid input)
     try:
         tmp_path = await validate_and_save(file)
-    except Exception as e:
+    except Exception as exc:
+        logger.exception("Dashboard upload preparation failed")
         record_beta_event(
             ctx,
             "upload_failed",
             "Upload konnte nicht vorbereitet werden",
             severity="error",
-            context={"filename": file.filename or "unbekannt", "error": str(e)},
+            context={"filename": file.filename or "unbekannt", "error": str(exc)},
         )
         return _render(
             "partials/upload_result.html",
             success=False,
-            message=str(e),
+            message="Upload konnte nicht vorbereitet werden.",
             category="",
             confidence=0,
         )
 
     try:
         result = ingest_file_workflow(ctx, tmp_path)
-    except Exception as e:
+    except Exception as exc:
         tmp_path.unlink(missing_ok=True)
+        logger.exception("Dashboard document processing failed")
         record_beta_event(
             ctx,
             "upload_failed",
             "Dokument konnte nicht verarbeitet werden",
             severity="error",
-            context={"filename": file.filename or "unbekannt", "error": str(e)},
+            context={"filename": file.filename or "unbekannt", "error": str(exc)},
         )
         return _render(
             "partials/upload_result.html",
             success=False,
-            message=str(e),
+            message="Dokument konnte nicht verarbeitet werden.",
             category="",
             confidence=0,
         )
@@ -220,7 +233,8 @@ async def review_correct(
             item_id=item_id,
         )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.exception("Dashboard review correction failed")
+        raise HTTPException(status_code=500, detail="Review action failed") from exc
     return _render(
         "partials/review_done.html",
         message=f"Erledigt: Kategorie wurde auf '{category.strip()}' gesetzt.",
@@ -243,7 +257,8 @@ async def review_confirm(item_id: int) -> HTMLResponse:
             item_id=item_id,
         )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.exception("Dashboard review confirmation failed")
+        raise HTTPException(status_code=500, detail="Review action failed") from exc
     return _render("partials/review_done.html", message="Erledigt: Einordnung bestätigt.")
 
 

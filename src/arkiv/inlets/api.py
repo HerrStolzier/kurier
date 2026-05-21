@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated, Any
 
 from fastapi import APIRouter, FastAPI, File, Form, HTTPException, Query, UploadFile
@@ -19,6 +20,8 @@ from arkiv.core.config import ArkivConfig
 from arkiv.core.engine import Engine
 from arkiv.core.upload import validate_and_save
 
+logger = logging.getLogger(__name__)
+
 # Shared application runtime is initialized by create_app()
 _app_context: AppContext | None = None
 
@@ -34,12 +37,12 @@ def create_app(
         config: Optional ArkivConfig to use. Loaded from disk if not provided.
         api_key: Optional API key required for non-localhost requests.
         localhost_only: When True and no api_key is set, block all non-localhost access.
-            Defaults to False (no restriction). Set to True via ``kurier serve`` when
-            the host is non-localhost and no --api-key / --force flag is given.
+            Defaults to False (no restriction). Set to True via ``kurier serve`` for
+            local-only protection.
     """
     global _app_context
 
-    from arkiv.core.auth import ApiKeyMiddleware
+    from arkiv.core.auth import ApiKeyMiddleware, CsrfMiddleware, generate_csrf_token
 
     cfg = config or ArkivConfig.load()
     _app_context = AppContext(cfg)
@@ -50,16 +53,20 @@ def create_app(
         version=__version__,
     )
 
-    # Add auth middleware only when access control is actually needed
+    csrf_token = generate_csrf_token()
+    api.add_middleware(CsrfMiddleware, token=csrf_token, api_key=api_key)
+
+    # Add auth middleware only when network access control is actually needed.
     if api_key or localhost_only:
         api.add_middleware(ApiKeyMiddleware, api_key=api_key, localhost_only=localhost_only)
 
     api.include_router(_build_router())
 
     # Mount dashboard (HTMX web UI)
-    from arkiv.dashboard.routes import _static_app
+    from arkiv.dashboard.routes import _static_app, set_csrf_token
     from arkiv.dashboard.routes import router as dashboard_router
 
+    set_csrf_token(csrf_token)
     api.include_router(dashboard_router)
     api.mount("/dashboard/static", _static_app, name="dashboard-static")
 
@@ -170,9 +177,13 @@ def _build_router() -> APIRouter:
 
         try:
             result = ingest_file_workflow(ctx, tmp_path)
-        except Exception as e:
+        except Exception as exc:
             tmp_path.unlink(missing_ok=True)
-            raise HTTPException(status_code=500, detail=str(e)) from e
+            logger.exception("API file ingest failed")
+            raise HTTPException(
+                status_code=500,
+                detail="Document could not be processed",
+            ) from exc
 
         # Clean up temp file only if routing moved it
         tmp_path.unlink(missing_ok=True)
@@ -195,7 +206,14 @@ def _build_router() -> APIRouter:
         if not text.strip():
             raise HTTPException(status_code=422, detail="Text cannot be empty")
 
-        result = ingest_text_workflow(ctx, text, name=name)
+        try:
+            result = ingest_text_workflow(ctx, text, name=name)
+        except Exception as exc:
+            logger.exception("API text ingest failed")
+            raise HTTPException(
+                status_code=500,
+                detail="Text could not be processed",
+            ) from exc
 
         return IngestResponse(
             success=result.success,

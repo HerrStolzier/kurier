@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from arkiv.core.auth import CSRF_COOKIE_NAME, CSRF_HEADER_NAME
 from arkiv.core.config import ArkivConfig
 from arkiv.inlets.api import create_app
 
@@ -23,6 +24,13 @@ def client(tmp_path: Path) -> TestClient:
     )
     app = create_app(config)
     return TestClient(app)
+
+
+def _csrf_headers(client: TestClient) -> dict[str, str]:
+    client.get("/health")
+    token = client.cookies.get(CSRF_COOKIE_NAME)
+    assert token is not None
+    return {CSRF_HEADER_NAME: token}
 
 
 def test_health(client: TestClient) -> None:
@@ -60,6 +68,7 @@ def test_ingest_text(client: TestClient) -> None:
         resp = client.post(
             "/ingest/text",
             data={"text": "This is a test note about Python async patterns"},
+            headers=_csrf_headers(client),
         )
 
     assert resp.status_code == 200
@@ -69,8 +78,57 @@ def test_ingest_text(client: TestClient) -> None:
 
 
 def test_ingest_text_empty_rejected(client: TestClient) -> None:
-    resp = client.post("/ingest/text", data={"text": "   "})
+    resp = client.post("/ingest/text", data={"text": "   "}, headers=_csrf_headers(client))
     assert resp.status_code == 422
+
+
+def test_ingest_text_returns_safe_error_detail(client: TestClient) -> None:
+    with patch("arkiv.inlets.api.ingest_text_workflow", side_effect=RuntimeError("/secret/path")):
+        resp = client.post(
+            "/ingest/text",
+            data={"text": "trigger error"},
+            headers=_csrf_headers(client),
+        )
+
+    assert resp.status_code == 500
+    assert resp.json()["detail"] == "Text could not be processed"
+    assert "/secret/path" not in resp.text
+
+
+def test_ingest_text_rejects_missing_csrf_token(client: TestClient) -> None:
+    resp = client.post("/ingest/text", data={"text": "browser form"})
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "CSRF token required"
+
+
+def test_api_key_client_can_post_without_csrf(tmp_path: Path) -> None:
+    config = ArkivConfig(
+        database={"path": tmp_path / "test.db"},
+        inbox_dir=tmp_path / "inbox",
+        review_dir=tmp_path / "review",
+    )
+    api_key_client = TestClient(create_app(config, api_key="secret"))
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock()]
+    mock_response.choices[0].message.content = json.dumps(
+        {
+            "category": "notiz",
+            "confidence": 0.85,
+            "summary": "A test note",
+            "tags": ["test"],
+            "language": "en",
+            "suggested_filename": "API Key Note",
+        }
+    )
+
+    with patch("arkiv.core.classifier.completion", return_value=mock_response):
+        resp = api_key_client.post(
+            "/ingest/text",
+            data={"text": "API key clients stay ergonomic"},
+            headers={"x-api-key": "secret"},
+        )
+
+    assert resp.status_code == 200
 
 
 def test_ingest_file(client: TestClient, tmp_path: Path) -> None:
@@ -92,6 +150,7 @@ def test_ingest_file(client: TestClient, tmp_path: Path) -> None:
         resp = client.post(
             "/ingest/file",
             files={"file": ("tutorial.md", b"# Python Tutorial\nHello world", "text/markdown")},
+            headers=_csrf_headers(client),
         )
 
     assert resp.status_code == 200
@@ -131,6 +190,7 @@ def test_search_after_ingest(client: TestClient) -> None:
         client.post(
             "/ingest/text",
             data={"text": "Telekom Rechnung für März 2026"},
+            headers=_csrf_headers(client),
         )
 
     resp = client.get("/search", params={"q": "Telekom", "mode": "fts"})
@@ -168,6 +228,7 @@ def test_memory_search_uses_query_assist_rewrites(client: TestClient) -> None:
         client.post(
             "/ingest/text",
             data={"text": "Telekom Rechnung für März 2026"},
+            headers=_csrf_headers(client),
         )
 
     with patch("arkiv.core.search_assistant.completion", return_value=search_assist_response):
@@ -209,6 +270,7 @@ def test_recent_items_return_minimized_titles(client: TestClient) -> None:
         client.post(
             "/ingest/text",
             data={"text": "Schreiben der Krankenkasse wegen neuem Beitrag"},
+            headers=_csrf_headers(client),
         )
 
     resp = client.get("/recent")

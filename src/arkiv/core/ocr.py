@@ -14,6 +14,10 @@ logger = logging.getLogger(__name__)
 
 # Minimum chars to consider native extraction successful
 MIN_TEXT_THRESHOLD = 50
+PDF_OCR_DPI = 300
+MAX_PDF_PAGES = 50
+MAX_OCR_PAGES = 10
+MAX_OCR_PIXELS = 25_000_000
 
 # Supported file extensions
 PDF_EXTENSIONS = {".pdf"}
@@ -54,27 +58,39 @@ def _extract_from_pdf(file_path: Path, languages: str) -> str | None:
 
     doc = pymupdf.open(str(file_path))  # type: ignore[no-untyped-call]
     pages_text: list[str] = []
+    ocr_pages = 0
 
-    page: Any
-    for page_num, page in enumerate(doc):  # type: ignore[arg-type]
-        # Step 1: Try native text extraction (fast)
-        text: str = page.get_text().strip()
+    try:
+        page: Any
+        for page_num, page in enumerate(doc):  # type: ignore[arg-type]
+            if page_num >= MAX_PDF_PAGES:
+                logger.warning("PDF extraction stopped after %d pages", MAX_PDF_PAGES)
+                break
 
-        # Step 2: If too little text, try OCR
-        if len(text) < MIN_TEXT_THRESHOLD:
-            ocr_text = _ocr_pdf_page(page, languages)
-            if ocr_text:
-                text = ocr_text
-                logger.debug("Page %d: used OCR (%d chars)", page_num + 1, len(text))
+            # Step 1: Try native text extraction (fast)
+            text: str = page.get_text().strip()
+
+            # Step 2: If too little text, try OCR
+            if len(text) < MIN_TEXT_THRESHOLD:
+                if ocr_pages >= MAX_OCR_PAGES:
+                    logger.warning("PDF OCR stopped after %d pages", MAX_OCR_PAGES)
+                    ocr_text = None
+                else:
+                    ocr_pages += 1
+                    ocr_text = _ocr_pdf_page(page, languages)
+                if ocr_text:
+                    text = ocr_text
+                    logger.debug("Page %d: used OCR (%d chars)", page_num + 1, len(text))
+                else:
+                    logger.debug("Page %d: native extraction (%d chars)", page_num + 1, len(text))
             else:
                 logger.debug("Page %d: native extraction (%d chars)", page_num + 1, len(text))
-        else:
-            logger.debug("Page %d: native extraction (%d chars)", page_num + 1, len(text))
 
-        if text:
-            pages_text.append(text)
+            if text:
+                pages_text.append(text)
+    finally:
+        doc.close()  # type: ignore[no-untyped-call]
 
-    doc.close()  # type: ignore[no-untyped-call]
     return "\n\n".join(pages_text) if pages_text else ""
 
 
@@ -86,8 +102,17 @@ def _ocr_pdf_page(page: Any, languages: str) -> str | None:
     except ImportError:
         return None
 
-    # Render page to image at 300 DPI for good OCR quality
-    pix = page.get_pixmap(dpi=300)
+    width, height, pixels = _rendered_page_size(page, PDF_OCR_DPI)
+    if pixels > MAX_OCR_PIXELS:
+        logger.warning(
+            "Skipping OCR for oversized PDF page: %dx%d pixels exceeds %d",
+            width,
+            height,
+            MAX_OCR_PIXELS,
+        )
+        return None
+
+    pix = page.get_pixmap(dpi=PDF_OCR_DPI)
     img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
 
     try:
@@ -96,6 +121,14 @@ def _ocr_pdf_page(page: Any, languages: str) -> str | None:
     except Exception as e:
         logger.warning("OCR failed for page: %s", e)
         return None
+
+
+def _rendered_page_size(page: Any, dpi: int) -> tuple[int, int, int]:
+    """Estimate rendered page dimensions before allocating a pixmap."""
+    rect = page.rect
+    width = max(1, int((float(rect.width) / 72) * dpi))
+    height = max(1, int((float(rect.height) / 72) * dpi))
+    return width, height, width * height
 
 
 def _extract_from_image(file_path: Path, languages: str) -> str | None:

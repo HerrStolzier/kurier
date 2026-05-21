@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from arkiv.core.auth import CSRF_COOKIE_NAME, CSRF_HEADER_NAME
 from arkiv.core.config import ArkivConfig
 from arkiv.db.store import Store
 from arkiv.inlets.api import create_app
@@ -25,6 +26,13 @@ def client(tmp_path: Path) -> TestClient:
     return TestClient(app)
 
 
+def _csrf_headers(client: TestClient) -> dict[str, str]:
+    client.get("/dashboard/")
+    token = client.cookies.get(CSRF_COOKIE_NAME)
+    assert token is not None
+    return {CSRF_HEADER_NAME: token}
+
+
 def test_root_redirects_to_dashboard(client: TestClient) -> None:
     resp = client.get("/", follow_redirects=False)
     assert resp.status_code == 307
@@ -37,6 +45,7 @@ def test_dashboard_loads(client: TestClient) -> None:
     assert "Kurier" in resp.text
     assert "htmx" in resp.text
     assert "styles.css" in resp.text
+    assert "kurier-csrf-token" in resp.text
     assert "Problem melden" in resp.text
     assert 'hx-trigger="load, every 5s"' in resp.text
 
@@ -105,12 +114,11 @@ def test_search_partial_no_results_records_beta_event(client: TestClient, tmp_pa
     assert events[0]["context"]["query"] == "nonexistent"
 
 
-def test_beta_problem_partial_records_manual_feedback(
-    client: TestClient, tmp_path: Path
-) -> None:
+def test_beta_problem_partial_records_manual_feedback(client: TestClient, tmp_path: Path) -> None:
     resp = client.post(
         "/dashboard/partials/beta/problem",
         data={"message": "Ich finde den Status nicht.", "page": "dashboard"},
+        headers=_csrf_headers(client),
     )
 
     assert resp.status_code == 200
@@ -140,6 +148,7 @@ def test_upload_partial(client: TestClient) -> None:
         resp = client.post(
             "/dashboard/partials/upload",
             files={"file": ("test.txt", b"Invoice content", "text/plain")},
+            headers=_csrf_headers(client),
         )
 
     assert resp.status_code == 200
@@ -167,6 +176,7 @@ def test_search_after_upload(client: TestClient) -> None:
         client.post(
             "/dashboard/partials/upload",
             files={"file": ("tutorial.md", b"# Python Tutorial", "text/markdown")},
+            headers=_csrf_headers(client),
         )
 
     resp = client.get("/dashboard/partials/search", params={"q": "Python"})
@@ -202,6 +212,7 @@ def test_search_partial_shows_memory_assist(client: TestClient) -> None:
         client.post(
             "/dashboard/partials/upload",
             files={"file": ("scan.txt", b"Telekom Rechnung Maerz", "text/plain")},
+            headers=_csrf_headers(client),
         )
 
     with patch("arkiv.core.search_assistant.completion", return_value=assist_response):
@@ -235,6 +246,7 @@ def test_recent_shows_items_after_upload(client: TestClient) -> None:
         client.post(
             "/dashboard/partials/upload",
             files={"file": ("note.txt", b"Remember this", "text/plain")},
+            headers=_csrf_headers(client),
         )
 
     resp = client.get("/dashboard/partials/recent")
@@ -271,6 +283,7 @@ def test_review_correct_confirms_item_and_removes_it_from_queue(
     resp = client.post(
         f"/dashboard/partials/review/{item_id}/correct",
         data={"category": "brief"},
+        headers=_csrf_headers(client),
     )
     assert resp.status_code == 200
     assert "Erledigt" in resp.text

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 from typer.testing import CliRunner
 
@@ -173,3 +174,45 @@ def test_beta_report_prioritizes_next_product_actions(tmp_path: Path) -> None:
     assert "Was sollte als Nächstes verbessert werden?" in result.stdout
     assert "Import-Vertrauen prüfen" in result.stdout
     assert "Suche verständlicher machen" in result.stdout
+
+
+def test_serve_requires_api_key_for_non_loopback_even_with_force(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.toml"
+    db_path = tmp_path / "state" / "kurier.db"
+    inbox_dir = tmp_path / "inbox"
+    review_dir = tmp_path / "review"
+    _write_config(config_path, db_path, inbox_dir, review_dir)
+
+    result = runner.invoke(
+        app,
+        ["serve", "--host", "0.0.0.0", "--force", "--config", str(config_path)],
+    )
+
+    assert result.exit_code == 1
+    assert "--api-key" in result.stdout
+    assert "--force deaktiviert" in result.stdout
+
+
+def test_serve_allows_non_loopback_with_api_key(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.toml"
+    db_path = tmp_path / "state" / "kurier.db"
+    inbox_dir = tmp_path / "inbox"
+    review_dir = tmp_path / "review"
+    _write_config(config_path, db_path, inbox_dir, review_dir)
+
+    with patch("uvicorn.run") as run:
+        result = runner.invoke(
+            app,
+            [
+                "serve",
+                "--host",
+                "0.0.0.0",
+                "--api-key",
+                "test-secret",
+                "--config",
+                str(config_path),
+            ],
+        )
+
+    assert result.exit_code == 0
+    run.assert_called_once()

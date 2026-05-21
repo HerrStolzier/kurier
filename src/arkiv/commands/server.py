@@ -2,12 +2,23 @@
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 from pathlib import Path
 
 import typer
 
 from arkiv.commands.common import __version__, console, get_config
+
+
+def _is_loopback_host(host: str) -> bool:
+    normalized = host.strip().lower()
+    if normalized == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(normalized).is_loopback
+    except ValueError:
+        return False
 
 
 def serve(
@@ -18,7 +29,7 @@ def serve(
     force: bool = typer.Option(
         False,
         "--force",
-        help="Allow binding to non-localhost without --api-key (insecure).",
+        help="Deprecated. Non-localhost bindings always require --api-key.",
     ),
     api_key: str | None = typer.Option(
         None,
@@ -38,33 +49,31 @@ def serve(
         console.print('  pip install "kurier @ git+https://github.com/HerrStolzier/kurier.git"')
         raise typer.Exit(1) from None
 
-    if host != "127.0.0.1":
-        if not force and not api_key:
+    is_loopback = _is_loopback_host(host)
+    if not is_loopback:
+        if not api_key:
+            force_note = (
+                " [dim]Hinweis: --force deaktiviert die API-Key-Pflicht nicht mehr.[/dim]\n"
+                if force
+                else ""
+            )
             console.print(
                 f"\n[red bold]Fehler:[/red bold] Binding to [bold]{host}[/bold] "
                 "exposes the API to your network.\n"
-                "Use [bold]--api-key <key>[/bold] to require authentication, "
-                "or [bold]--force[/bold] to allow unauthenticated access (insecure).\n"
+                "Use [bold]--api-key <key>[/bold] to require authentication.\n"
+                f"{force_note}"
             )
             raise typer.Exit(1)
 
-        if api_key:
-            console.print(
-                f"\n[yellow]Non-localhost binding:[/yellow] "
-                f"[bold]{host}:{port}[/bold] — API key authentication active.\n"
-            )
-        else:
-            console.print(
-                f"\n[yellow bold]Security Warning:[/yellow bold] Binding to "
-                f"[bold]{host}[/bold] exposes the API to your network.\n"
-                "[yellow]All endpoints are unauthenticated. Anyone on your network "
-                "can search, upload, and read your classified documents.[/yellow]\n"
-            )
+        console.print(
+            f"\n[yellow]Non-localhost binding:[/yellow] "
+            f"[bold]{host}:{port}[/bold] — API key authentication active.\n"
+        )
 
     from arkiv.inlets.api import create_app
 
     cfg = get_config(config)
-    localhost_only = host != "127.0.0.1" and not force
+    localhost_only = not is_loopback
     api = create_app(cfg, api_key=api_key, localhost_only=localhost_only)
 
     console.print(f"\n[bold]Kurier API[/bold] v{__version__}")

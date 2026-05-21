@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import tempfile
 from pathlib import Path
 
 from fastapi import HTTPException, UploadFile
+
+logger = logging.getLogger(__name__)
 
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 
@@ -80,6 +83,7 @@ async def validate_and_save(file: UploadFile) -> Path:
     except Exception as exc:
         if tmp_path is not None:
             tmp_path.unlink(missing_ok=True)
-        raise HTTPException(500, f"Upload fehlgeschlagen: {exc}") from exc
+        logger.exception("Upload streaming failed")
+        raise HTTPException(500, "Upload fehlgeschlagen") from exc
 
     return tmp_path

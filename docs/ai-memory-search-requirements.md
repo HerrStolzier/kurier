@@ -31,10 +31,10 @@ Eine gute Erinnerungssuche ist nicht einfach "intelligent klingend", sondern in 
 ## Bestehende Grundlage im Repo
 Kurier hat bereits wichtige Bausteine:
 
-- Hybrid-Suche aus FTS + Vektor in [engine.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/core/engine.py) und [store.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/db/store.py)
-- Lokales Ollama-LLM als Default in [config.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/core/config.py)
-- Klassifikation mit `summary`, `tags` und `suggested_filename` in [classifier.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/core/classifier.py)
-- Umbenennung mit sprechendem Dateinamen in [router.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/core/router.py)
+- Hybrid-Suche aus FTS + Vektor in [engine.py](/Users/ten.december/claude-projects/kurier/src/arkiv/core/engine.py) und [store.py](/Users/ten.december/claude-projects/kurier/src/arkiv/db/store.py)
+- Lokales Ollama-LLM als Default in [config.py](/Users/ten.december/claude-projects/kurier/src/arkiv/core/config.py)
+- Klassifikation mit `summary`, `tags` und `suggested_filename` in [classifier.py](/Users/ten.december/claude-projects/kurier/src/arkiv/core/classifier.py)
+- Umbenennung mit sprechendem Dateinamen in [router.py](/Users/ten.december/claude-projects/kurier/src/arkiv/core/router.py)
 
 ## Offene Produktluecke
 Die aktuelle Suche ist bereits staerker als reine Stichwortsuche, aber fuer Erinnerungssuche fehlen noch zwei Dinge:

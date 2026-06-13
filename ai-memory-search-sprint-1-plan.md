@@ -13,10 +13,10 @@ Sprint 1 schafft die Entscheidungsgrundlage fuer das KI-gestuetzte Suchfeature i
 
 Der Plan baut auf dem aktuellen Repo-Stand auf:
 
-- bestehende Hybrid-Suche in [src/arkiv/core/engine.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/core/engine.py)
-- FTS5 + sqlite-vec in [src/arkiv/db/store.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/db/store.py)
-- lokales Ollama-LLM als Default in [src/arkiv/core/config.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/core/config.py)
-- Klassifikation mit `suggested_filename` in [src/arkiv/core/classifier.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/core/classifier.py)
+- bestehende Hybrid-Suche in [src/arkiv/core/engine.py](/Users/ten.december/claude-projects/kurier/src/arkiv/core/engine.py)
+- FTS5 + sqlite-vec in [src/arkiv/db/store.py](/Users/ten.december/claude-projects/kurier/src/arkiv/db/store.py)
+- lokales Ollama-LLM als Default in [src/arkiv/core/config.py](/Users/ten.december/claude-projects/kurier/src/arkiv/core/config.py)
+- Klassifikation mit `suggested_filename` in [src/arkiv/core/classifier.py](/Users/ten.december/claude-projects/kurier/src/arkiv/core/classifier.py)
 
 ## Prerequisites
 - Lokale Dev-Umgebung funktioniert bereits (`.venv`, Tests, Ruff, MyPy).

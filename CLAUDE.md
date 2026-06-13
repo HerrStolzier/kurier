@@ -3,10 +3,27 @@
 Universal capture → classify → route. Python 3.11+, local-first.
 PyPI: `pipx install kurier` | CLI: `kurier` | Internal package: `arkiv`
 
+## Stable Rules (verbindlich)
+
+- **Alle LLM-Calls laufen ausschließlich über `src/arkiv/core/llm.py`.** `litellm` NIE wieder einführen (Supply-Chain-Attacke März 2026) — das ist die wichtigste Leitplanke dieses Repos.
+- Externer Name ist `kurier` (PyPI, CLI), das interne Python-Package bleibt `arkiv`.
+- Nach Code-Änderungen immer laufen lassen: `ruff check src/` + `mypy src/arkiv/ --ignore-missing-imports` + `pytest tests/ -x -q`.
+- Bei Änderungen an `plugins/arkiv-webhook/` zusätzlich: `pytest --rootdir=plugins/arkiv-webhook --override-ini="testpaths=plugins/arkiv-webhook/tests" plugins/arkiv-webhook/tests/`.
+- Vor dem Fertigmelden nicht-trivialer Workflow- oder Code-Änderungen: `uv run python scripts/agent_finish.py`. Schlägt es fehl: Fehler beheben oder den verbleibenden Blocker klar benennen.
+- `WORKFLOWS.md`, `CHECKS.md` und `KNOWN_ERRORS.md` aktuell halten, wenn sich Kommandos, Dependencies, Outputs oder bekannte Fehlerbilder ändern.
+- Bei Änderungen an Klassifikation, Provider-Wiring oder Plugin-Hooks: mindestens einen echten Provider-Smoke-Pfad verifizieren statt nur gemockte Unit-Tests.
+- Bei Änderungen an Packaging, Install-Flow oder CLI-Entrypoints: frische editable- UND wheel-Install-Smokes, nicht nur der bestehenden In-Place-Dev-Umgebung vertrauen.
+- `.github/workflows/secret-scan.yml` bleibt als CI-Baseline unangetastet: PRs, `main`-Pushes und manueller Dispatch, `contents: read`, gepinnte Action-Revisionen, `fetch-depth: 0`.
+
+## Session-Learnings
+
+Session-übergreifende Caveats stehen in `docs/project-learnings.md` — vor größeren Änderungen lesen, bei neuen Erkenntnissen ergänzen.
+
 ## Commands
 
 ```bash
-# Install (development)
+# Setup (frischer Checkout — die .venv wird nicht mitkopiert!)
+uv venv
 uv pip install -e ".[dev]"
 uv pip install -e plugins/arkiv-webhook
 
@@ -158,6 +175,8 @@ mypy src/arkiv/ --ignore-missing-imports     # Type check (strict!)
 pytest tests/ -x -q                          # Tests
 ```
 **mypy --strict ist aktiv** — alle Funktionen brauchen Return-Type-Annotations, generische Typen brauchen Parameter (`dict[str, object]` nicht `dict`), und `subprocess.run()` muss `text=True` haben wenn `.stdout` als `str` verwendet wird.
+
+Zusätzlich gelten die Stable Rules oben: Plugin-pytest bei `plugins/arkiv-webhook/`-Änderungen, `uv run python scripts/agent_finish.py` vor dem Fertigmelden.
 
 ## Testing
 

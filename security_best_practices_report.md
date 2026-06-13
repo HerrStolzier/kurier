@@ -25,10 +25,10 @@ Bevor Sprint 2 startet, sollte die Implementierung auf einem klaren Prinzip aufb
 - **Rule ID**: KBP-001
 - **Severity**: High
 - **Location**:
-  - [src/arkiv/core/config.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/core/config.py#L36) bis [src/arkiv/core/config.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/core/config.py#L40)
-  - [src/arkiv/core/engine.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/core/engine.py#L81) bis [src/arkiv/core/engine.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/core/engine.py#L94)
-  - [src/arkiv/db/store.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/db/store.py#L15) bis [src/arkiv/db/store.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/db/store.py#L34)
-  - [src/arkiv/inlets/api.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/inlets/api.py#L216) bis [src/arkiv/inlets/api.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/inlets/api.py#L223)
+  - [src/arkiv/core/config.py](/Users/ten.december/claude-projects/kurier/src/arkiv/core/config.py#L36) bis [src/arkiv/core/config.py](/Users/ten.december/claude-projects/kurier/src/arkiv/core/config.py#L40)
+  - [src/arkiv/core/engine.py](/Users/ten.december/claude-projects/kurier/src/arkiv/core/engine.py#L81) bis [src/arkiv/core/engine.py](/Users/ten.december/claude-projects/kurier/src/arkiv/core/engine.py#L94)
+  - [src/arkiv/db/store.py](/Users/ten.december/claude-projects/kurier/src/arkiv/db/store.py#L15) bis [src/arkiv/db/store.py](/Users/ten.december/claude-projects/kurier/src/arkiv/db/store.py#L34)
+  - [src/arkiv/inlets/api.py](/Users/ten.december/claude-projects/kurier/src/arkiv/inlets/api.py#L216) bis [src/arkiv/inlets/api.py](/Users/ten.december/claude-projects/kurier/src/arkiv/inlets/api.py#L223)
 - **Evidence**:
   - `store_content: bool = True`
   - `content_text=content[:2000] if store_content else ""`
@@ -53,10 +53,10 @@ Bevor Sprint 2 startet, sollte die Implementierung auf einem klaren Prinzip aufb
 - **Rule ID**: KBP-002
 - **Severity**: High
 - **Location**:
-  - [src/arkiv/core/engine.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/core/engine.py#L50) bis [src/arkiv/core/engine.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/core/engine.py#L70)
-  - [src/arkiv/core/classifier.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/core/classifier.py#L27) bis [src/arkiv/core/classifier.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/core/classifier.py#L54)
-  - [src/arkiv/core/classifier.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/core/classifier.py#L129) bis [src/arkiv/core/classifier.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/core/classifier.py#L159)
-  - [src/arkiv/core/llm.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/core/llm.py#L35) bis [src/arkiv/core/llm.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/core/llm.py#L60)
+  - [src/arkiv/core/engine.py](/Users/ten.december/claude-projects/kurier/src/arkiv/core/engine.py#L50) bis [src/arkiv/core/engine.py](/Users/ten.december/claude-projects/kurier/src/arkiv/core/engine.py#L70)
+  - [src/arkiv/core/classifier.py](/Users/ten.december/claude-projects/kurier/src/arkiv/core/classifier.py#L27) bis [src/arkiv/core/classifier.py](/Users/ten.december/claude-projects/kurier/src/arkiv/core/classifier.py#L54)
+  - [src/arkiv/core/classifier.py](/Users/ten.december/claude-projects/kurier/src/arkiv/core/classifier.py#L129) bis [src/arkiv/core/classifier.py](/Users/ten.december/claude-projects/kurier/src/arkiv/core/classifier.py#L159)
+  - [src/arkiv/core/llm.py](/Users/ten.december/claude-projects/kurier/src/arkiv/core/llm.py#L35) bis [src/arkiv/core/llm.py](/Users/ten.december/claude-projects/kurier/src/arkiv/core/llm.py#L60)
 - **Evidence**:
   - Dokumentinhalt wird direkt in Prompts eingebettet: `Content: --- {content} ---`
   - OCR-Text und Dateiinhalt werden ungefiltert extrahiert und weitergereicht.
@@ -82,9 +82,9 @@ Bevor Sprint 2 startet, sollte die Implementierung auf einem klaren Prinzip aufb
 - **Rule ID**: KBP-003
 - **Severity**: Medium
 - **Location**:
-  - [src/arkiv/dashboard/templates/partials/search_results.html](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/dashboard/templates/partials/search_results.html#L16) bis [src/arkiv/dashboard/templates/partials/search_results.html](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/dashboard/templates/partials/search_results.html#L17)
-  - [src/arkiv/dashboard/routes.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/dashboard/routes.py#L67) bis [src/arkiv/dashboard/routes.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/dashboard/routes.py#L79)
-  - [src/arkiv/cli.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/cli.py#L336) bis [src/arkiv/cli.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/cli.py#L352)
+  - [src/arkiv/dashboard/templates/partials/search_results.html](/Users/ten.december/claude-projects/kurier/src/arkiv/dashboard/templates/partials/search_results.html#L16) bis [src/arkiv/dashboard/templates/partials/search_results.html](/Users/ten.december/claude-projects/kurier/src/arkiv/dashboard/templates/partials/search_results.html#L17)
+  - [src/arkiv/dashboard/routes.py](/Users/ten.december/claude-projects/kurier/src/arkiv/dashboard/routes.py#L67) bis [src/arkiv/dashboard/routes.py](/Users/ten.december/claude-projects/kurier/src/arkiv/dashboard/routes.py#L79)
+  - [src/arkiv/cli.py](/Users/ten.december/claude-projects/kurier/src/arkiv/cli.py#L336) bis [src/arkiv/cli.py](/Users/ten.december/claude-projects/kurier/src/arkiv/cli.py#L352)
 - **Evidence**:
   - Dashboard zeigt `{{ item.original_path }}`
   - CLI-Suche arbeitet stark mit Summary, Route und Datum; die kommende Erinnerungssuche wuerde diese Ausgabe voraussichtlich erweitern
@@ -103,9 +103,9 @@ Bevor Sprint 2 startet, sollte die Implementierung auf einem klaren Prinzip aufb
 - **Rule ID**: KBP-004
 - **Severity**: Medium
 - **Location**:
-  - [src/arkiv/inlets/api.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/inlets/api.py#L134) bis [src/arkiv/inlets/api.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/inlets/api.py#L148)
-  - [src/arkiv/inlets/api.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/inlets/api.py#L136) bis [src/arkiv/inlets/api.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/inlets/api.py#L138)
-  - [src/arkiv/dashboard/routes.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/dashboard/routes.py#L101) bis [src/arkiv/dashboard/routes.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/dashboard/routes.py#L123)
+  - [src/arkiv/inlets/api.py](/Users/ten.december/claude-projects/kurier/src/arkiv/inlets/api.py#L134) bis [src/arkiv/inlets/api.py](/Users/ten.december/claude-projects/kurier/src/arkiv/inlets/api.py#L148)
+  - [src/arkiv/inlets/api.py](/Users/ten.december/claude-projects/kurier/src/arkiv/inlets/api.py#L136) bis [src/arkiv/inlets/api.py](/Users/ten.december/claude-projects/kurier/src/arkiv/inlets/api.py#L138)
+  - [src/arkiv/dashboard/routes.py](/Users/ten.december/claude-projects/kurier/src/arkiv/dashboard/routes.py#L101) bis [src/arkiv/dashboard/routes.py](/Users/ten.december/claude-projects/kurier/src/arkiv/dashboard/routes.py#L123)
 - **Evidence**:
   - `raise HTTPException(status_code=500, detail=str(e))`
   - Dashboard rendert `message=str(e)` in Fehlerfaellen
@@ -124,8 +124,8 @@ Bevor Sprint 2 startet, sollte die Implementierung auf einem klaren Prinzip aufb
 - **Rule ID**: KBP-005
 - **Severity**: Medium
 - **Location**:
-  - [src/arkiv/dashboard/routes.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/dashboard/routes.py#L29) bis [src/arkiv/dashboard/routes.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/dashboard/routes.py#L45)
-  - [src/arkiv/dashboard/templates/base.html](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/dashboard/templates/base.html#L1) bis [src/arkiv/dashboard/templates/base.html](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/dashboard/templates/base.html#L33)
+  - [src/arkiv/dashboard/routes.py](/Users/ten.december/claude-projects/kurier/src/arkiv/dashboard/routes.py#L29) bis [src/arkiv/dashboard/routes.py](/Users/ten.december/claude-projects/kurier/src/arkiv/dashboard/routes.py#L45)
+  - [src/arkiv/dashboard/templates/base.html](/Users/ten.december/claude-projects/kurier/src/arkiv/dashboard/templates/base.html#L1) bis [src/arkiv/dashboard/templates/base.html](/Users/ten.december/claude-projects/kurier/src/arkiv/dashboard/templates/base.html#L33)
 - **Evidence**:
   - Jinja2 `autoescape=True` ist sichtbar, das ist gut.
   - Eine explizite CSP oder andere Browser-Schutzheader sind im App-Code nicht sichtbar.

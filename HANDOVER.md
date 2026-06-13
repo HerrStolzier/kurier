@@ -38,26 +38,26 @@ Wichtige Punkte:
 
 Wichtige Dateien:
 
-- [src/arkiv/core/search_assistant.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/core/search_assistant.py)
-- [src/arkiv/core/engine.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/core/engine.py)
-- [src/arkiv/db/store.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/db/store.py)
-- [src/arkiv/inlets/api.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/inlets/api.py)
-- [src/arkiv/cli.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/cli.py)
-- [src/arkiv/dashboard/routes.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/dashboard/routes.py)
-- [src/arkiv/dashboard/templates/dashboard.html](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/dashboard/templates/dashboard.html)
-- [src/arkiv/dashboard/templates/partials/search_results.html](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/dashboard/templates/partials/search_results.html)
+- [src/arkiv/core/search_assistant.py](/Users/ten.december/claude-projects/kurier/src/arkiv/core/search_assistant.py)
+- [src/arkiv/core/engine.py](/Users/ten.december/claude-projects/kurier/src/arkiv/core/engine.py)
+- [src/arkiv/db/store.py](/Users/ten.december/claude-projects/kurier/src/arkiv/db/store.py)
+- [src/arkiv/inlets/api.py](/Users/ten.december/claude-projects/kurier/src/arkiv/inlets/api.py)
+- [src/arkiv/cli.py](/Users/ten.december/claude-projects/kurier/src/arkiv/cli.py)
+- [src/arkiv/dashboard/routes.py](/Users/ten.december/claude-projects/kurier/src/arkiv/dashboard/routes.py)
+- [src/arkiv/dashboard/templates/dashboard.html](/Users/ten.december/claude-projects/kurier/src/arkiv/dashboard/templates/dashboard.html)
+- [src/arkiv/dashboard/templates/partials/search_results.html](/Users/ten.december/claude-projects/kurier/src/arkiv/dashboard/templates/partials/search_results.html)
 
 ### Eval-/Planungsartefakte
 
 Es gibt bereits vorbereitete Unterlagen für Modellvergleich und Eval-Logik:
 
-- [ai-memory-search-sprint-1-plan.md](/Users/clawdkent/Desktop/projekte-codex/kurier/ai-memory-search-sprint-1-plan.md)
-- [docs/ai-memory-search-requirements.md](/Users/clawdkent/Desktop/projekte-codex/kurier/docs/ai-memory-search-requirements.md)
-- [docs/ai-memory-search-model-shortlist.md](/Users/clawdkent/Desktop/projekte-codex/kurier/docs/ai-memory-search-model-shortlist.md)
-- [docs/ai-memory-search-mvp-decision.md](/Users/clawdkent/Desktop/projekte-codex/kurier/docs/ai-memory-search-mvp-decision.md)
-- [security_best_practices_report.md](/Users/clawdkent/Desktop/projekte-codex/kurier/security_best_practices_report.md)
-- [src/arkiv/evals/ai_search_benchmark.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/evals/ai_search_benchmark.py)
-- [tests/fixtures/ai_search_benchmark.json](/Users/clawdkent/Desktop/projekte-codex/kurier/tests/fixtures/ai_search_benchmark.json)
+- [ai-memory-search-sprint-1-plan.md](/Users/ten.december/claude-projects/kurier/ai-memory-search-sprint-1-plan.md)
+- [docs/ai-memory-search-requirements.md](/Users/ten.december/claude-projects/kurier/docs/ai-memory-search-requirements.md)
+- [docs/ai-memory-search-model-shortlist.md](/Users/ten.december/claude-projects/kurier/docs/ai-memory-search-model-shortlist.md)
+- [docs/ai-memory-search-mvp-decision.md](/Users/ten.december/claude-projects/kurier/docs/ai-memory-search-mvp-decision.md)
+- [security_best_practices_report.md](/Users/ten.december/claude-projects/kurier/security_best_practices_report.md)
+- [src/arkiv/evals/ai_search_benchmark.py](/Users/ten.december/claude-projects/kurier/src/arkiv/evals/ai_search_benchmark.py)
+- [tests/fixtures/ai_search_benchmark.json](/Users/ten.december/claude-projects/kurier/tests/fixtures/ai_search_benchmark.json)
 
 ### Review-Flow-Fix
 
@@ -69,9 +69,9 @@ Ein echter Nutzerbug wurde behoben:
 
 Relevante Stellen:
 
-- [src/arkiv/db/store.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/db/store.py)
-- [tests/test_store.py](/Users/clawdkent/Desktop/projekte-codex/kurier/tests/test_store.py)
-- [tests/test_dashboard.py](/Users/clawdkent/Desktop/projekte-codex/kurier/tests/test_dashboard.py)
+- [src/arkiv/db/store.py](/Users/ten.december/claude-projects/kurier/src/arkiv/db/store.py)
+- [tests/test_store.py](/Users/ten.december/claude-projects/kurier/tests/test_store.py)
+- [tests/test_dashboard.py](/Users/ten.december/claude-projects/kurier/tests/test_dashboard.py)
 
 ### Dashboard-Static-Fix
 
@@ -83,9 +83,9 @@ Ein echter Browser-Bug wurde behoben:
 
 Relevante Stellen:
 
-- [src/arkiv/inlets/api.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/inlets/api.py)
-- [src/arkiv/dashboard/routes.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/dashboard/routes.py)
-- [tests/test_dashboard.py](/Users/clawdkent/Desktop/projekte-codex/kurier/tests/test_dashboard.py)
+- [src/arkiv/inlets/api.py](/Users/ten.december/claude-projects/kurier/src/arkiv/inlets/api.py)
+- [src/arkiv/dashboard/routes.py](/Users/ten.december/claude-projects/kurier/src/arkiv/dashboard/routes.py)
+- [tests/test_dashboard.py](/Users/ten.december/claude-projects/kurier/tests/test_dashboard.py)
 
 ## Was wirklich E2E getestet wurde
 
@@ -194,7 +194,7 @@ Die sinnvollsten nächsten Richtungen sind:
 
 ## Praktische Hinweise für den nächsten Agenten
 
-- Bitte alle LLM-Aufrufe weiter über [src/arkiv/core/llm.py](/Users/clawdkent/Desktop/projekte-codex/kurier/src/arkiv/core/llm.py) laufen lassen.
+- Bitte alle LLM-Aufrufe weiter über [src/arkiv/core/llm.py](/Users/ten.december/claude-projects/kurier/src/arkiv/core/llm.py) laufen lassen.
 - `litellm` nicht wieder einführen.
 - Nach Codeänderungen diese drei Checks laufen lassen:
   - `ruff check src/`

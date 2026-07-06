@@ -133,7 +133,6 @@ def model_fits_ram(model_name: str, ram_gb: int | None = None) -> tuple[bool | N
     if ram >= required:
         return (
             True,
-            f"{model_name} passt voraussichtlich zu {ram} GB RAM "
-            f"(Minimum ca. {required} GB).",
+            f"{model_name} passt voraussichtlich zu {ram} GB RAM (Minimum ca. {required} GB).",
         )
     return False, f"{model_name} braucht ca. {required} GB RAM, erkannt wurden {ram} GB."

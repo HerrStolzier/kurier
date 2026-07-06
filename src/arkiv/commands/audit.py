@@ -115,9 +115,11 @@ def _run_interactive_fixes(cfg: ArkivConfig, report: AuditReport) -> None:
                 break
 
         elif issue.issue_type == "misclassified":
-            answer = console.input(
-                "[bold]Accept new classification? [y/n/skip all]:[/bold] "
-            ).strip().lower()
+            answer = (
+                console.input("[bold]Accept new classification? [y/n/skip all]:[/bold] ")
+                .strip()
+                .lower()
+            )
             if answer == "y":
                 console.print(
                     "[dim]  (DB updated. File was already moved by original routing — "

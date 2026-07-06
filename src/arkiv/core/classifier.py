@@ -133,8 +133,7 @@ def _postprocess_classification(content: str, classification: Classification) ->
     issuer_tokens = {token.casefold() for token in issuer.split()}
     filename_tokens = {token.casefold() for token in classification.suggested_filename.split()}
     generic_or_missing_issuer = (
-        "Anbieter" in classification.suggested_filename
-        or not issuer_tokens <= filename_tokens
+        "Anbieter" in classification.suggested_filename or not issuer_tokens <= filename_tokens
     )
     if not generic_or_missing_issuer:
         return classification

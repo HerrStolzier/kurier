@@ -104,6 +104,14 @@ module = [
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+# numpy 2.5+ ships stubs using PEP 695 `type` statements, which mypy rejects
+# when targeting python_version < 3.12. Skip analysing numpy's own stubs so
+# the 3.11 target stays intact. Pulled in transitively via fastembed.
+module = ["numpy", "numpy.*"]
+follow_imports = "skip"
+follow_imports_for_stubs = true
+
+[[tool.mypy.overrides]]
 module = ["arkiv.inlets.api", "arkiv.dashboard.routes", "arkiv.core.auth"]
 disallow_untyped_decorators = false
 ignore_errors = true

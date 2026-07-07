@@ -60,8 +60,7 @@ def status(
         )
     else:
         console.print(
-            "[dim]Intelligente Suche:[/dim] [yellow]nicht aktiv[/yellow] "
-            "(sqlite-vec fehlt)\n"
+            "[dim]Intelligente Suche:[/dim] [yellow]nicht aktiv[/yellow] (sqlite-vec fehlt)\n"
         )
 
     open_webhooks = int(s.get("webhooks_open", 0))
@@ -75,7 +74,7 @@ def status(
 
     console.print(
         "[dim]Nächster Schritt:[/dim] Dokumente in den Eingang legen, "
-        "im Dashboard prüfen oder mit `kurier search \"...\" --memory` suchen.\n"
+        'im Dashboard prüfen oder mit `kurier search "..." --memory` suchen.\n'
     )
 
     if s["categories"]:

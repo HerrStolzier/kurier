@@ -59,8 +59,7 @@ def report(
         console.print("[bold]Nächste sinnvolle Produktaufgaben:[/bold]")
         for index, recommendation in enumerate(recommendations, 1):
             console.print(
-                f"{index}. {recommendation['title']} "
-                f"({recommendation['count']} Signal(e))"
+                f"{index}. {recommendation['title']} ({recommendation['count']} Signal(e))"
             )
         console.print()
         action_table = Table(

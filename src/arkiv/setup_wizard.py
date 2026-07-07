@@ -312,9 +312,7 @@ def _configure_ollama_new(sys_info: dict[str, Any]) -> dict[str, Any]:
     console.print("\n[bold]Recommended models for your system:[/bold]\n")
 
     suitable_models = recommended_models_for_ram(ram)
-    suitable = [
-        (m.min_ram_gb, m.model_id, m.display_name, m.size_note) for m in suitable_models
-    ]
+    suitable = [(m.min_ram_gb, m.model_id, m.display_name, m.size_note) for m in suitable_models]
 
     for i, (_, _model_id, name, note) in enumerate(suitable, 1):
         console.print(f"  [bold]{i}.[/bold] {name} ({note})")

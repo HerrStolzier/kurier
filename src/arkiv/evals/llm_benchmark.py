@@ -191,8 +191,12 @@ def run_classifier_eval(
     """Evaluate document classification and filename quality."""
     if not spec.uses_llm:
         summary = TaskSummary(
-            task="classifier", model=spec.label, provider=spec.provider,
-            status="skipped_baseline_not_applicable", cases=0, overall_score=0.0,
+            task="classifier",
+            model=spec.label,
+            provider=spec.provider,
+            status="skipped_baseline_not_applicable",
+            cases=0,
+            overall_score=0.0,
         )
         return summary, []
     if not credentials_available(spec):
@@ -281,8 +285,12 @@ def run_search_eval(
     """Evaluate query-assist JSON quality, rewrites, and filters."""
     if not spec.uses_llm:
         summary = TaskSummary(
-            task="search", model=spec.label, provider=spec.provider,
-            status="skipped_baseline_not_applicable", cases=0, overall_score=0.0,
+            task="search",
+            model=spec.label,
+            provider=spec.provider,
+            status="skipped_baseline_not_applicable",
+            cases=0,
+            overall_score=0.0,
         )
         return summary, []
     if not credentials_available(spec):
@@ -544,9 +552,7 @@ def recommend_model(results: list[TaskSummary]) -> ModelRecommendation | None:
     for model, model_results in grouped.items():
         score = sum(result.overall_score for result in model_results) / len(model_results)
         latencies = [
-            result.avg_latency_ms
-            for result in model_results
-            if result.avg_latency_ms is not None
+            result.avg_latency_ms for result in model_results if result.avg_latency_ms is not None
         ]
         avg_latency = sum(latencies) / len(latencies) if latencies else None
         provider = model_results[0].provider

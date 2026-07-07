@@ -34,7 +34,18 @@ def test_tui_menu_uses_user_facing_healthcheck_label() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tui_boots_into_home_screen_with_menu_and_empty_db_hint(config: ArkivConfig) -> None:
+async def test_tui_boots_into_home_screen_with_menu_and_empty_db_hint(
+    config: ArkivConfig, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # HomeScreen.on_mount pushes the setup wizard (leaving the stats bar at
+    # "Lade Statistiken...") when the default config file is absent. Point it
+    # at an existing file so load_stats() runs and the test stays hermetic —
+    # otherwise it silently depends on the developer's real
+    # ~/.config/kurier/config.toml and fails on clean CI runners.
+    existing_config = tmp_path / "config.toml"
+    existing_config.write_text("")
+    monkeypatch.setattr("arkiv.core.config.DEFAULT_CONFIG_FILE", existing_config)
+
     app = ArkivApp(config)
 
     async with app.run_test() as _pilot:

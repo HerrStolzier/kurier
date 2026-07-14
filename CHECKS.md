@@ -1,9 +1,14 @@
 # Workflow Checks
 
+> **Zweck:** Checks fuer Kurier: Standardabschluss, Direktkommandos, Format-, Plugin- und Smoke-Checks.
+> **Scope:** uv run ruff / mypy / pytest plus gezielte Zusatzchecks.
+> **Suchbegriffe:** ruff, mypy, pytest, uv, format, plugin, smoke
+> **Stand:** 2026-07-14
+
 ## Standard Check
 
 ```bash
-uv run python scripts/agent_finish.py
+python3 scripts/agent_finish.py --auto-claims
 ```
 
 Der Standard-Check prueft zuerst die Guard-Dateien und fuehrt dann die normalen Kurier-Qualitaetschecks aus.
@@ -59,3 +64,16 @@ uv build
 ## Erwartung
 
 Agenten fuehren den Standard-Check nach nicht-trivialen Aenderungen aus und aktualisieren die Guard-Dokumentation, wenn sich Workflows, Befehle, Abhaengigkeiten oder bekannte Fehler veraendern.
+
+## Standardabschluss
+
+```bash
+python3 scripts/agent_finish.py --auto-claims
+```
+
+Fuehrt aus:
+1. Struktur-Guard (`scripts/workflow_check.py`) - kanonisch, in allen Repos identisch
+2. Technischer Projektcheck aus `.agents/project_check`
+3. Claim-Check (`scripts/claim_check.py`)
+
+Exit 2 blockiert ueber den Stop-Hook den Abschluss.

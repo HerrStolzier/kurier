@@ -184,3 +184,29 @@ Zusätzlich gelten die Stable Rules oben: Plugin-pytest bei `plugins/arkiv-webho
 - API tests use `fastapi.testclient.TestClient`.
 - Store/auditor tests use `tmp_path` fixture for disposable SQLite DBs.
 - **Mock gap warning**: Unit tests with mocked LLM don't test the real provider integration path. Always verify with at least one smoke test using a real LLM. The pluggy empty-list bug was invisible to a fully green mocked test suite.
+
+## Abschluss
+
+Nicht-triviale Arbeit endet mit dem Standardabschluss:
+
+```bash
+python3 scripts/agent_finish.py --auto-claims
+```
+
+Der Stop-Hook erzwingt das. Schlaegt der Check fehl, ist die Arbeit nicht fertig.
+Die technischen Projektchecks stehen versioniert in `.agents/project_check` -
+nicht im Guard-Script. Aendert sich der Check, aendert sich diese Datei.
+
+## Belegpflicht
+
+Keine Behauptung ohne lokale Evidenz. Belegbare Claim-Typen:
+`file`, `external_source`, `skipped_verification`, `command`.
+Siehe `scripts/claim_check.py`.
+
+## Doku darf nicht luegen
+
+Jeder Pfad, den WORKFLOWS.md / CHECKS.md / KNOWN_ERRORS.md in Backticks nennen,
+muss existieren. `scripts/doc_drift_check.py` erzwingt das bei jedem Abschluss.
+
+Pfad umbenannt oder geloescht? Doku mitziehen. Laufzeit-Artefakt (Build-Output,
+Log, Modell-ID)? Zeile nach `.agents/doc_paths_ignore`.

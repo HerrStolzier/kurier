@@ -1,5 +1,10 @@
 # Workflow Register
 
+> **Zweck:** Register der lokalen Kurier-Entwicklung: CLI, API, Dashboard, Routing, Suche, OCR.
+> **Scope:** Standard-Workflow, bevor Agenten Codeaenderungen als fertig melden.
+> **Suchbegriffe:** cli, api, dashboard, routing, suche, ocr, uv, python
+> **Stand:** 2026-07-14
+
 ## Kurier Local Development Workflow
 
 ### Zweck
@@ -24,7 +29,7 @@ uv run kurier status
 
 - Geaenderter, getesteter Projektstand.
 - Aktualisierte Guard-Dokumentation, wenn Workflows, Checks oder bekannte Fehler betroffen sind.
-- Nach Abschluss ein Eintrag in `.agents/workflow_guard_runs.md` durch `uv run python scripts/agent_finish.py`.
+- Nach Abschluss ein Eintrag in `.agents/finish_runs.jsonl` durch `python3 scripts/agent_finish.py --auto-claims`.
 
 ### Wichtige Dateien
 
@@ -58,7 +63,7 @@ uv run kurier status
 ### Pruefung
 
 ```bash
-uv run python scripts/agent_finish.py
+python3 scripts/agent_finish.py --auto-claims
 ```
 
 ### Letzter Review

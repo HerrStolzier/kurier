@@ -37,7 +37,10 @@ coverage.xml
 .ruff_cache/
 
 # Agent-local run logs
-.agents/
+.agents/*
+!.agents/.gitignore
+!.agents/project_check
+!.agents/doc_paths_ignore
 
 # Lotse data (don't commit user data)
 *.db

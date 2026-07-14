@@ -1,5 +1,10 @@
 # Known Errors
 
+> **Zweck:** Bekannte Fehler in Kurier mit Symptom, Ursache und Loesung.
+> **Scope:** Ruff-Format-Drift, lokale DB-Zustaende, Webhook-Zustellung.
+> **Suchbegriffe:** ruff, format, drift, database, status, webhook, delivery
+> **Stand:** 2026-07-14
+
 ## Global Ruff Format Drift
 
 ### Symptom

@@ -1,0 +1,4 @@
+set -e
+uv run ruff check src/ tests/
+uv run mypy src/arkiv/ --ignore-missing-imports
+uv run pytest tests/ -x -q

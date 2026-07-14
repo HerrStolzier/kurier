@@ -39,7 +39,13 @@ import sys
 # ist aber ueber einen ChatGPT-Account nicht nutzbar ("not supported when using
 # Codex with a ChatGPT account") - dafuer braeuchte es einen API-Key-Account.
 DEFAULT_MODEL = "gpt-5.6-terra"
-DEFAULT_EFFORT = "high"
+
+# Effort ist bei "medium" gedeckelt (Nutzervorgabe 2026-07-14). "high" ist
+# bewusst KEINE Option: ein Review-Lauf auf hohem Effort frisst spuerbar
+# Kontingent, und ein Gate, das das Kontingent leerlaeuft, blockiert am Ende
+# alles. Nicht die codex-Konfiguration erben lassen - die steht auf "low".
+EFFORT_CHOICES = ["low", "medium"]
+DEFAULT_EFFORT = "medium"
 
 
 def now():
@@ -115,8 +121,8 @@ def main():
     ap.add_argument(
         "--effort",
         default=DEFAULT_EFFORT,
-        choices=["low", "medium", "high", "xhigh"],
-        help=f"Reasoning-Effort (Default: {DEFAULT_EFFORT})",
+        choices=EFFORT_CHOICES,
+        help=f"Reasoning-Effort, gedeckelt bei medium (Default: {DEFAULT_EFFORT})",
     )
     args = ap.parse_args()
 

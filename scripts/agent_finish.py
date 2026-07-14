@@ -4,9 +4,10 @@
 Reihenfolge:
   1. Struktur-Guard (workflow_check.py)
   2. Doku-Drift-Gate (doc_drift_check.py) - behauptete Pfade muessen existieren
-  3. Technischer Projektcheck (Befehl aus .agents/project_check, optional)
-  4. Optional: Claim-Check (--auto-claims)
-  5. Lauf-Log nach .agents/finish_runs.jsonl
+  3. Review-Gate (review_gate.py) - opt-in via .agents/review_required
+  4. Technischer Projektcheck (Befehl aus .agents/project_check, optional)
+  5. Optional: Claim-Check (--auto-claims)
+  6. Lauf-Log nach .agents/finish_runs.jsonl
 
 Exit-Code 2 bei Fehlschlag, damit ein Stop-Hook den Abschluss blockiert.
 """
@@ -74,7 +75,10 @@ def main():
     # 2) Doku-Drift: behauptet die Doku Pfade, die es nicht gibt?
     steps.append(("doc_drift", run("python3 scripts/doc_drift_check.py")))
 
-    # 3) Technischer Projektcheck (optional)
+    # 3) Cross-Model-Review (nur wenn .agents/review_required existiert)
+    steps.append(("review_gate", run("python3 scripts/review_gate.py")))
+
+    # 4) Technischer Projektcheck (optional)
     pc = AGENTS / "project_check"
     if pc.exists() and pc.read_text(encoding="utf-8").strip():
         cmd = pc.read_text(encoding="utf-8").strip()

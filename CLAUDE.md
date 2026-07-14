@@ -210,3 +210,17 @@ muss existieren. `scripts/doc_drift_check.py` erzwingt das bei jedem Abschluss.
 
 Pfad umbenannt oder geloescht? Doku mitziehen. Laufzeit-Artefakt (Build-Output,
 Log, Modell-ID)? Zeile nach `.agents/doc_paths_ignore`.
+
+## Gegenlesen lassen
+
+Ein Modell, das seinen eigenen Code reviewt, findet vor allem, was es ohnehin
+schon dachte. Deshalb an zwei Punkten ein ZWEITES Modell drueberschauen lassen:
+
+1. **Nach dem Plan**, bevor implementiert wird - Konvention, kein Gate.
+   Ein Skript kann das nicht erzwingen (es gibt kein Plan-Artefakt).
+2. **Vor dem Abschluss** - `tools/agent_review --uncommitted`.
+
+Liegt `.agents/review_required` im Repo, erzwingt `scripts/review_gate.py` Punkt 2:
+Der Abschluss blockiert, bis ein Review vorliegt, das den AKTUELLEN Stand abdeckt.
+Aendert sich der Code danach, wird das Review ungueltig - ein Review von gestern
+auf altem Code belegt nichts.

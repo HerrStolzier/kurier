@@ -50,10 +50,44 @@ def git(*args):
     return r.stdout or ""
 
 
-def changed_code_paths():
-    """Geaenderte Code-Pfade: getrackt (modifiziert/gestaged) + ungetrackt."""
+def rev_exists(ref):
+    r = subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", ref], cwd=ROOT, capture_output=True
+    )
+    return r.returncode == 0
+
+
+def baseline():
+    """Ab welchem Stand gilt Code als ungeprueft?
+
+    Frueher war das immer HEAD - und damit liess sich das Gate trivial umgehen:
+    Code committen, Arbeitsbaum ist sauber, Gate meldet "nichts gegenzulesen".
+    Der Code war nie gegengelesen. (Cross-Model-Review 2026-07-14, P1.)
+
+    Reihenfolge:
+      1. der Stand, den das letzte Review abgedeckt hat
+      2. sonst der Upstream-Branch - lokale, ungepushte Commits gelten als
+         ungeprueft
+      3. sonst HEAD (Repo ohne Remote und ohne Review: mehr ist nicht bekannt)
+    """
+    if LAST.exists():
+        try:
+            head = json.loads(LAST.read_text(encoding="utf-8")).get("head")
+            if head and rev_exists(head):
+                return head
+        except Exception:
+            pass
+    upstream = git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}").strip()
+    if upstream and rev_exists(upstream):
+        return upstream
+    return "HEAD"
+
+
+def changed_code_paths(base=None):
+    """Ungeprueftes: Commits seit der Basislinie + Arbeitsbaum + ungetrackt."""
+    base = base or baseline()
     paths = set()
-    for rel in git("diff", "--name-only", "HEAD").splitlines():
+    for rel in git("diff", "--name-only", base).splitlines():
         if rel.strip():
             paths.add(rel.strip())
     for rel in git("ls-files", "--others", "--exclude-standard").splitlines():
@@ -63,9 +97,10 @@ def changed_code_paths():
 
 
 def fingerprint():
-    """Hash ueber Pfade UND Inhalte der geaenderten Code-Dateien."""
-    parts = []
-    for rel in changed_code_paths():
+    """Hash ueber Basislinie, Pfade UND Inhalte des ungeprueften Codes."""
+    base = baseline()
+    parts = [f"base:{git('rev-parse', base).strip()}"]
+    for rel in changed_code_paths(base):
         f = ROOT / rel
         try:
             digest = hashlib.sha256(f.read_bytes()).hexdigest()
@@ -106,6 +141,10 @@ def fail(msg):
 def main():
     if "--fingerprint" in sys.argv:
         print(fingerprint())
+        return 0
+
+    if "--baseline" in sys.argv:
+        print(git("rev-parse", baseline()).strip())
         return 0
 
     if not FLAG.exists():

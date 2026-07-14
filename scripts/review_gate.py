@@ -83,12 +83,13 @@ def review_tool():
     (so im Cross-Model-Review aufgefallen).
     """
     for cand in (
+        ROOT / "scripts" / "agent_review",  # mit dem Plugin ausgeliefert
         ROOT.parent / "tools" / "agent_review",
         ROOT.parent / "workflow-guard-system" / "tools" / "agent_review",
     ):
         if cand.exists():
             return str(cand)
-    return "tools/agent_review  (nicht gefunden - Pfad zum Workspace pruefen)"
+    return "scripts/agent_review  (fehlt - /init-guard erneut laufen lassen)"
 
 
 def fail(msg):

@@ -27,6 +27,7 @@ REQUIRED_SCRIPTS = [
     "scripts/claim_check.py",
     "scripts/doc_drift_check.py",
     "scripts/review_gate.py",
+    "scripts/agent_review",
 ]
 
 # Unausgefuellte Templates sind schlimmer als keine Doku: sie lesen sich wie Wahrheit.

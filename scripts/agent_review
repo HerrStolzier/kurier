@@ -162,18 +162,22 @@ def main():
     cmd = [codex, "exec", "review"]
     releases_worktree = False
     if args.base:
-        cmd += ["--base", args.base]
+        scope_flags = ["--base", args.base]
+        scope_desc = f"die Aenderungen gegenueber Branch {args.base}"
         mode = f"base-{args.base}"
     elif args.commit:
-        cmd += ["--commit", args.commit]
+        scope_flags = ["--commit", args.commit]
+        scope_desc = f"die Aenderungen des Commits {args.commit}"
         mode = f"commit-{args.commit[:8]}"
     else:
         base = gate_query(repo, "--baseline")
         if base and base != head:
-            cmd += ["--base", base]
+            scope_flags = ["--base", base]
+            scope_desc = f"alle Aenderungen seit {base} (Commits und Arbeitsbaum)"
             mode = "unreviewed"
         else:
-            cmd += ["--uncommitted"]
+            scope_flags = ["--uncommitted"]
+            scope_desc = "die uncommitteten Aenderungen (staged, unstaged und untracked)"
             mode = "uncommitted"
         releases_worktree = True
     if args.model:
@@ -182,8 +186,14 @@ def main():
     # -c ueberschreibt config.toml nur fuer diesen Lauf; die interaktive
     # codex-Nutzung des Users bleibt unangetastet.
     cmd += ["-c", f"model_reasoning_effort={args.effort!r}".replace("'", '"')]
+    # Die codex-CLI erlaubt den Positional-Prompt nicht zusammen mit
+    # --base/--commit/--uncommitted (Custom-Instructions sind dort ein eigener,
+    # vierter Review-Modus). Mit --prompt wird der Scope deshalb in die
+    # Instruktion eingebettet statt als Flag uebergeben.
     if args.prompt:
-        cmd += [args.prompt]
+        cmd += [f"Reviewe {scope_desc}. Zusaetzlicher Fokus: {args.prompt}"]
+    else:
+        cmd += scope_flags
 
     print(f"Zweitmodell liest gegen: {repo.name} ({mode}) [{args.model}, effort={args.effort}]")
     print(f"$ {' '.join(cmd)}\n")

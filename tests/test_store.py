@@ -303,3 +303,46 @@ def test_mark_webhook_failed_keeps_delivery_pending_until_terminal(store: Store)
     assert failed["status"] == "failed"
     assert failed["attempt_count"] == 3
     assert failed["last_error"] == "gone"
+
+
+def _record_failed_item(store, destination: str) -> int:
+    return store.record_item(
+        original_path="/tmp/doc.txt",
+        destination=destination,
+        category="rechnung",
+        confidence=0.9,
+        summary="s",
+        tags=[],
+        language="de",
+        route_name="hook" if destination.startswith("http") else "archiv",
+        status="failed",
+    )
+
+
+def test_reconcile_flips_webhook_failed_item_to_routed(tmp_path):
+    store = Store(tmp_path / "test.db")
+    item_id = _record_failed_item(store, "http://example.invalid/hook")
+    delivery_id = store.enqueue_webhook(
+        item_id=item_id,
+        route_name="hook",
+        url="http://example.invalid/hook",
+        payload={"a": 1},
+        last_error="boom",
+    )
+
+    # Solange die Zustellung offen ist, bleibt failed
+    store.reconcile_item_after_webhook_delivery(item_id)
+    assert store.get_recent(limit=1)[0]["status"] == "failed"
+
+    store.mark_webhook_delivered(delivery_id)
+    store.reconcile_item_after_webhook_delivery(item_id)
+    assert store.get_recent(limit=1)[0]["status"] == "routed"
+
+
+def test_reconcile_leaves_folder_failed_item_untouched(tmp_path):
+    store = Store(tmp_path / "test.db")
+    item_id = _record_failed_item(store, "")  # Folder-Fehlschlag: keine URL
+
+    store.reconcile_item_after_webhook_delivery(item_id)
+
+    assert store.get_recent(limit=1)[0]["status"] == "failed"

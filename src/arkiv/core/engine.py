@@ -110,8 +110,16 @@ class Engine:
         # Step 6: Try to route
         try:
             result = self.router.execute(file_path, classification, item_id=item_id)
-            self.store.update_status(item_id, "routed")
+            # Status folgt dem Ergebnis: ein RouteResult mit success=False
+            # (Webhook-only-Fehlschlag, Folder-Route ohne Pfad) ist nicht "routed".
+            self.store.update_status(item_id, "routed" if result.success else "failed")
             self.store.update_routing_metadata(item_id, result.destination, result.route_name)
+            if not result.success:
+                # Schliesst das Race mit einem parallel laufenden
+                # `kurier webhooks retry`: Wurde die Outbox-Zeile schon
+                # zugestellt, bevor der failed-Status geschrieben war,
+                # setzt reconcile das Item jetzt wieder auf routed.
+                self.store.reconcile_item_after_webhook_delivery(item_id)
         except Exception as exc:
             logger.warning("Routing failed for %s: %s", file_path.name, exc)
             self.store.update_status(item_id, "failed")

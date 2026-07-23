@@ -390,3 +390,138 @@ def test_build_filename_replaces_underscores(mock_date: object) -> None:
     result = _build_filename(c, ".txt")
     assert "_" not in result
     assert "telekom rechnung märz" in result
+
+
+def test_two_matching_folder_routes_first_moves_rest_skipped(tmp_path: Path) -> None:
+    routes = {
+        "archiv": RouteConfig(
+            type="folder",
+            path=str(tmp_path / "archiv"),
+            categories=["rechnung"],
+            confidence_threshold=0.7,
+            rename=False,
+        ),
+        "alles": RouteConfig(
+            type="folder",
+            path=str(tmp_path / "alles"),
+            categories=[],  # wildcard
+            confidence_threshold=0.0,
+            rename=False,
+        ),
+    }
+    router = Router(routes, tmp_path / "review")
+    source = tmp_path / "invoice.pdf"
+    source.write_text("test content")
+
+    classification = Classification(
+        category="rechnung",
+        confidence=0.9,
+        summary="Test",
+        tags=[],
+        language="de",
+    )
+
+    result = router.execute(source, classification)
+
+    assert result.success
+    assert result.route_name == "archiv"
+    assert (tmp_path / "archiv" / "invoice.pdf").exists()
+    assert not source.exists()
+    assert not (tmp_path / "alles" / "invoice.pdf").exists()
+
+
+def test_failed_folder_route_falls_back_to_next_folder_route(tmp_path: Path) -> None:
+    routes = {
+        "kaputt": RouteConfig(
+            type="folder",
+            path=None,  # Konfigurationsfehler: kein Pfad
+            categories=["rechnung"],
+            confidence_threshold=0.7,
+        ),
+        "archiv": RouteConfig(
+            type="folder",
+            path=str(tmp_path / "archiv"),
+            categories=["rechnung"],
+            confidence_threshold=0.7,
+            rename=False,
+        ),
+    }
+    router = Router(routes, tmp_path / "review")
+    source = tmp_path / "invoice.pdf"
+    source.write_text("test content")
+
+    classification = Classification(
+        category="rechnung",
+        confidence=0.9,
+        summary="Test",
+        tags=[],
+        language="de",
+    )
+
+    result = router.execute(source, classification)
+
+    assert result.success
+    assert result.route_name == "archiv"
+    assert (tmp_path / "archiv" / "invoice.pdf").exists()
+
+
+def test_all_folder_routes_failing_returns_failure(tmp_path: Path) -> None:
+    routes = {
+        "kaputt": RouteConfig(
+            type="folder",
+            path=None,
+            categories=["rechnung"],
+            confidence_threshold=0.7,
+        ),
+    }
+    router = Router(routes, tmp_path / "review")
+    source = tmp_path / "invoice.pdf"
+    source.write_text("test content")
+
+    classification = Classification(
+        category="rechnung",
+        confidence=0.9,
+        summary="Test",
+        tags=[],
+        language="de",
+    )
+
+    result = router.execute(source, classification)
+
+    assert not result.success
+    assert source.exists()  # Datei wurde nicht bewegt
+
+
+def test_webhook_only_failure_wins_regardless_of_order(tmp_path: Path) -> None:
+    routes = {
+        "hook_ok": RouteConfig(
+            type="webhook",
+            url="http://example.invalid/ok",
+            categories=["rechnung"],
+            confidence_threshold=0.7,
+        ),
+        "hook_kaputt": RouteConfig(
+            type="webhook",
+            url="http://example.invalid/fail",
+            categories=["rechnung"],
+            confidence_threshold=0.7,
+        ),
+    }
+    router = Router(routes, tmp_path / "review")
+    source = tmp_path / "invoice.pdf"
+    source.write_text("test content")
+
+    classification = Classification(
+        category="rechnung",
+        confidence=0.9,
+        summary="Test",
+        tags=[],
+        language="de",
+    )
+
+    with patch("arkiv_webhook.send_webhook", side_effect=[True, False]):
+        result = router.execute(source, classification)
+
+    assert not result.success
+    assert result.route_name == "hook_kaputt"
+    assert source.exists()  # Webhooks bewegen keine Dateien

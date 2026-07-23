@@ -166,9 +166,21 @@ class Router:
             return self._route_to_review(source_path, classification)
 
         # Separate folder routes (file-moving) from webhook routes (fire-and-forget)
-        primary_result = None
+        primary_result = None  # first SUCCESSFUL folder move
+        first_folder_failure = None
+        first_webhook_failure = None
         first_result = None
         for route_name, route_config in matches:
+            # Nach einem erfolgreichen Move existiert source_path nicht mehr —
+            # weitere Folder-Routes würden auf dem toten Pfad crashen.
+            if route_config.type == "folder" and primary_result is not None:
+                logger.info(
+                    "Skipping folder route %s: file already moved by %s",
+                    route_name,
+                    primary_result.route_name,
+                )
+                continue
+
             result = self._execute_route(
                 source_path,
                 route_name,
@@ -178,16 +190,30 @@ class Router:
             )
             if first_result is None:
                 first_result = result
-            if primary_result is None and route_config.type == "folder":
-                primary_result = result
+            if route_config.type == "folder":
+                if result.success:
+                    primary_result = result
+                else:
+                    # Fehlgeschlagene Folder-Route (z. B. ohne path) hat die
+                    # Datei nicht bewegt — die nächste darf als Fallback ziehen.
+                    logger.warning("Folder route %s failed: %s", route_name, result.message)
+                    if first_folder_failure is None:
+                        first_folder_failure = result
             elif route_config.type == "webhook" and not result.success:
                 logger.warning("Webhook %s failed: %s", route_name, result.message)
+                if first_webhook_failure is None:
+                    first_webhook_failure = result
 
-        # If no folder route matched, use the first result (could be webhook-only)
-        if primary_result is None:
-            primary_result = first_result
-
-        return primary_result or self._route_to_review(source_path, classification)
+        # Ohne Folder-Move zaehlt ein Webhook-Fehlschlag als Gesamt-Fehlschlag
+        # (unabhaengig von der Routen-Reihenfolge) — der Status wird nach
+        # erfolgreichem Retry via reconcile wieder auf routed gesetzt.
+        return (
+            primary_result
+            or first_folder_failure
+            or first_webhook_failure
+            or first_result
+            or self._route_to_review(source_path, classification)
+        )
 
     def _execute_route(
         self,

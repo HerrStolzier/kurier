@@ -569,6 +569,27 @@ class Store:
         )
         self._conn.commit()
 
+    def reconcile_item_after_webhook_delivery(self, item_id: int) -> None:
+        """Failed-Item wieder auf routed setzen, wenn alle Webhooks zugestellt sind.
+
+        Greift nur bei Items, deren fehlgeschlagene Route ein Webhook war
+        (destination = URL) — ein Item, das wegen einer Folder-Route failed
+        ist, bleibt failed.
+        """
+        open_deliveries = self._conn.execute(
+            """SELECT COUNT(*) FROM webhook_outbox
+               WHERE item_id = ? AND status IN ('pending', 'failed')""",
+            (item_id,),
+        ).fetchone()[0]
+        if open_deliveries:
+            return
+        self._conn.execute(
+            """UPDATE items SET status = 'routed'
+               WHERE id = ? AND status = 'failed' AND destination LIKE 'http%'""",
+            (item_id,),
+        )
+        self._conn.commit()
+
     def mark_webhook_failed(
         self,
         delivery_id: int,

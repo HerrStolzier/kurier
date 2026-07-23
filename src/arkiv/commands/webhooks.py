@@ -95,6 +95,8 @@ def retry_webhooks(
         ok = send_webhook(row["url"], row["payload"])
         if ok:
             ctx.engine.store.mark_webhook_delivered(row["id"])
+            if row.get("item_id"):
+                ctx.engine.store.reconcile_item_after_webhook_delivery(row["item_id"])
             delivered += 1
             continue
 

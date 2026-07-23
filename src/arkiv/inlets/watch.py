@@ -92,6 +92,11 @@ class InboxHandler(FileSystemEventHandler):
         self.callback = callback
         self.cooldown = cooldown
         self._seen: dict[str, float] = {}
+        # Pfade, deren Stabilitaets-Wartezeit in den Timeout lief — nur fuer
+        # diese sind Modify-Events ein Retry-Signal. Sonst wuerden Dateien,
+        # die nach der Verarbeitung im Eingang bleiben (Webhook-only-Routen),
+        # durch aufgestaute Modify-Events mehrfach verarbeitet.
+        self._retry_pending: set[str] = set()
         self._semaphore = semaphore
         self._stop_event = stop_event
         self._stability_interval = stability_interval
@@ -130,7 +135,11 @@ class InboxHandler(FileSystemEventHandler):
         ):
             logger.warning("File not stable yet, skipping for now: %s", path.name)
             self._seen.pop(src_str, None)
+            if path.exists():
+                self._retry_pending.add(src_str)
             return
+
+        self._retry_pending.discard(src_str)
 
         logger.info("%s: %s", source_label, path.name)
 
@@ -152,12 +161,16 @@ class InboxHandler(FileSystemEventHandler):
         self.process_path(self._event_path(event))
 
     def on_modified(self, event: DirModifiedEvent | FileModifiedEvent) -> None:
-        # Retry-Pfad: Eine Datei, deren Stabilitaets-Wartezeit in den Timeout
-        # lief, bekommt ueber spaetere Modify-Events einen neuen Versuch
-        # (der Cooldown begrenzt die Event-Flut waehrend des Schreibens).
+        # Retry-Pfad NUR fuer Dateien, deren Stabilitaets-Wartezeit in den
+        # Timeout lief. Alle anderen Modify-Events werden ignoriert — sonst
+        # wuerden bereits verarbeitete Dateien, die im Eingang bleiben
+        # (Webhook-only-Routen), erneut verarbeitet.
         if event.is_directory:
             return
-        self.process_path(self._event_path(event))
+        path = self._event_path(event)
+        if str(path) not in self._retry_pending:
+            return
+        self.process_path(path)
 
     @staticmethod
     def _event_path(

@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
+from watchdog.events import FileModifiedEvent
+
 from arkiv.inlets.watch import InboxHandler, Watcher, list_inbox_files
 
 
@@ -130,12 +132,33 @@ def test_timeout_clears_cooldown_for_later_retry(tmp_path: Path) -> None:
     handler.process_path(target)  # laeuft in den Timeout
     assert processed == []
     assert str(target) not in handler._seen  # Cooldown freigegeben
+    assert str(target) in handler._retry_pending  # Retry vorgemerkt
 
     stop_writing.set()
     t.join()
-    handler.process_path(target)  # spaeteres (Modify-)Event: frischer Versuch
+    # Spaeteres Modify-Event: frischer Versuch, danach Retry-Merker geleert
+    handler.on_modified(FileModifiedEvent(str(target)))
 
     assert processed == [target]
+    assert str(target) not in handler._retry_pending
+
+
+def test_modified_event_ignored_for_already_processed_file(tmp_path: Path) -> None:
+    """Webhook-only-Dateien bleiben im Eingang — Modify-Events duerfen sie
+    nicht erneut verarbeiten."""
+    target = tmp_path / "stays.pdf"
+    target.write_text("data")
+
+    processed: list[Path] = []
+    handler = _handler(processed)
+
+    handler.process_path(target, use_cooldown=False)
+    assert processed == [target]
+
+    handler.on_modified(FileModifiedEvent(str(target)))
+    handler.on_modified(FileModifiedEvent(str(target)))
+
+    assert processed == [target]  # kein Duplikat
 
 
 def test_stop_event_aborts_stability_wait(tmp_path: Path) -> None:

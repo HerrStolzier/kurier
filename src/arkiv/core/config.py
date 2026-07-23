@@ -20,7 +20,9 @@ class LLMConfig(BaseModel):
 
     provider: str = "ollama"
     model: str = "qwen2.5:7b"
-    base_url: str | None = "http://localhost:11434"
+    # Kein Default: Cloud-Provider dürfen nicht implizit beim lokalen
+    # Ollama landen. Der Ollama-Pfad in llm.py defaultet selbst auf 11434.
+    base_url: str | None = None
     api_key: str | None = None
     temperature: float = 0.1
     max_tokens: int = 1024

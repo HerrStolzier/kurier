@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from urllib.parse import urlparse
 
 import httpx
 
@@ -23,15 +24,25 @@ class CompletionResponse:
     choices: list[Choice] = field(default_factory=list)
 
 
+def _is_local_ollama(api_base: str | None) -> bool:
+    if not api_base:
+        return False
+    parsed = urlparse(api_base if "://" in api_base else f"http://{api_base}")
+    return parsed.hostname in ("localhost", "127.0.0.1") and parsed.port == 11434
+
+
 def _detect_provider(model: str, api_base: str | None) -> str:
-    if api_base and "11434" in api_base:
-        return "ollama"
+    # Modell-Präfixe sind explizite Absichtserklärungen der Aufrufer und
+    # schlagen die URL-Heuristik (sonst landen Cloud-Modelle mit
+    # Default-base_url beim lokalen Ollama).
     if model.startswith(("huggingface/", "huggingface:")):
         return "huggingface"
     if model.startswith(("ollama_chat/", "ollama/")):
         return "ollama"
     if model.startswith(("claude", "anthropic/")):
         return "anthropic"
+    if _is_local_ollama(api_base):
+        return "ollama"
     return "openai"
 
 
@@ -117,6 +128,11 @@ def _call_anthropic(
     timeout: int,
     api_key: str | None,
 ) -> CompletionResponse:
+    for prefix in ("anthropic/",):
+        if model.startswith(prefix):
+            model = model[len(prefix) :]
+            break
+
     # Anthropic erwartet system separat
     system: str | None = None
     user_messages = []
@@ -175,8 +191,13 @@ def completion(
                 api_key,
             )
         if provider == "anthropic":
-            return _call_anthropic(model, messages, temperature, max_tokens, timeout, api_key)
+            key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+            return _call_anthropic(model, messages, temperature, max_tokens, timeout, key)
         # openai-kompatibel (OpenAI, vLLM, LM Studio, …)
+        # Env-Fallback nur für das echte api.openai.com — ein eigener
+        # api_base (vLLM, LM Studio) bekommt den OpenAI-Key nicht ungefragt.
+        if api_base is None:
+            api_key = api_key or os.environ.get("OPENAI_API_KEY")
         base = api_base or "https://api.openai.com"
         return _call_openai(model, messages, temperature, max_tokens, timeout, base, api_key)
 

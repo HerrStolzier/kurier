@@ -113,7 +113,6 @@ def test_doctor_warns_when_auto_sort_is_off_and_files_wait(tmp_path: Path, monke
 def test_init_quick_creates_notizen_route_and_next_step(tmp_path: Path, monkeypatch) -> None:
     """Quick init should explain the next step and include the default notes route."""
     config_path = tmp_path / "config.toml"
-    monkeypatch.setattr(setup_commands, "DEFAULT_CONFIG_DIR", tmp_path / ".config" / "kurier")
     monkeypatch.setattr(setup_commands.Path, "home", lambda: tmp_path)
 
     result = runner.invoke(app, ["init", "--quick", "--config", str(config_path)])

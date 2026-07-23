@@ -4,12 +4,11 @@ Kurier uses `pluggy` to discover optional extensions. The external package name 
 
 ## What plugins can do
 
-Plugins can hook into four parts of the pipeline:
+Plugins can hook into three parts of the pipeline:
 
 - `pre_classify`: change extracted text before the LLM sees it
 - `post_classify`: inspect the classification result
-- `custom_route`: handle routing yourself for special destinations
-- `on_routed`: react after a successful route, for example by sending a webhook or notification
+- `on_routed`: react after a successful route, for example by sending a webhook or notification. Fires exactly once per item, with the final (primary) route result.
 
 The hook specifications live in `src/arkiv/plugins/spec.py`.
 

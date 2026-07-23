@@ -120,6 +120,16 @@ class Engine:
                 # zugestellt, bevor der failed-Status geschrieben war,
                 # setzt reconcile das Item jetzt wieder auf routed.
                 self.store.reconcile_item_after_webhook_delivery(item_id)
+
+            if result.success:
+                try:
+                    self.plugin_manager.hook.on_routed(
+                        path=str(file_path),
+                        destination=result.destination,
+                        route_name=result.route_name,
+                    )
+                except Exception as exc:
+                    logger.warning("on_routed plugin hook failed (non-fatal): %s", exc)
         except Exception as exc:
             logger.warning("Routing failed for %s: %s", file_path.name, exc)
             self.store.update_status(item_id, "failed")

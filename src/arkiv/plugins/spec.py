@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import pluggy
 
 hookspec = pluggy.HookspecMarker("arkiv")
@@ -40,20 +38,11 @@ class ArkivPluginSpec:
         """
 
     @hookspec(firstresult=False)
-    def custom_route(self, path: str, classification: object) -> dict[str, Any] | None:
-        """Called during routing. Return a dict to handle routing yourself.
-
-        Args:
-            path: File path to route
-            classification: The Classification result
-
-        Returns:
-            Dict with 'destination' and 'message' keys, or None to skip
-        """
-
-    @hookspec(firstresult=False)
     def on_routed(self, path: str, destination: str, route_name: str) -> None:
         """Called after an item is successfully routed.
+
+        Fires exactly once per ingested item, with the FINAL successful
+        RouteResult (the primary route) — not once per fan-out sub-route.
 
         Args:
             path: Original file path

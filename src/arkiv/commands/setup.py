@@ -7,7 +7,7 @@ from pathlib import Path
 
 import typer
 
-from arkiv.commands.common import DEFAULT_CONFIG_DIR, DEFAULT_CONFIG_FILE, ArkivConfig, console
+from arkiv.commands.common import DEFAULT_CONFIG_FILE, ArkivConfig, console
 
 
 def _pick_folder(default: str) -> str:
@@ -112,7 +112,9 @@ def init(
     review_dir = base_dir / "Prüfen"
     review_dir.mkdir(parents=True, exist_ok=True)
 
-    DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    # path.parent statt DEFAULT_CONFIG_DIR: deckt auch --config in ein
+    # noch nicht existierendes Verzeichnis ab (Default-Fall ist identisch).
+    path.parent.mkdir(parents=True, exist_ok=True)
     default_config = (
         "# Kurier Einstellungen\n"
         "# https://github.com/HerrStolzier/kurier\n\n"

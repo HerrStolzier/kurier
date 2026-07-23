@@ -8,6 +8,7 @@ from unittest.mock import patch
 from arkiv.core.classifier import Classification
 from arkiv.core.config import ArkivConfig
 from arkiv.core.engine import Engine
+from arkiv.plugins.spec import hookimpl
 
 
 def _make_engine(tmp_path: Path, routes: dict) -> Engine:
@@ -81,3 +82,82 @@ def test_ingest_unsuccessful_route_persists_failed_status(tmp_path: Path) -> Non
     item = engine.store.get_recent(limit=1)[0]
     assert item["status"] == "failed"
     assert item["route_name"] == "kaputt"
+
+
+class _RecorderPlugin:
+    """Testplugin: protokolliert on_routed-Aufrufe."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, str]] = []
+
+    @hookimpl
+    def on_routed(self, path: str, destination: str, route_name: str) -> None:
+        self.calls.append((path, destination, route_name))
+
+
+class _ExplodingPlugin:
+    @hookimpl
+    def on_routed(self, path: str, destination: str, route_name: str) -> None:
+        raise RuntimeError("plugin kaputt")
+
+
+def _folder_routes(tmp_path: Path) -> dict:
+    return {
+        "archiv": {
+            "type": "folder",
+            "path": str(tmp_path / "archiv"),
+            "categories": ["rechnung"],
+            "confidence_threshold": 0.7,
+            "rename": False,
+        }
+    }
+
+
+def test_on_routed_hook_fires_once_with_final_result(tmp_path: Path) -> None:
+    engine = _make_engine(tmp_path, _folder_routes(tmp_path))
+    recorder = _RecorderPlugin()
+    engine.plugin_manager.register(recorder, name="recorder")
+    source = tmp_path / "invoice.txt"
+    source.write_text("Rechnung 42")
+
+    result = _ingest(engine, source)
+
+    assert result.success
+    assert len(recorder.calls) == 1
+    path, destination, route_name = recorder.calls[0]
+    assert path == str(source)
+    assert destination.endswith("invoice.txt")
+    assert route_name == "archiv"
+
+
+def test_on_routed_hook_not_fired_on_failure(tmp_path: Path) -> None:
+    routes = {
+        "kaputt": {
+            "type": "folder",
+            "path": None,
+            "categories": ["rechnung"],
+            "confidence_threshold": 0.7,
+        }
+    }
+    engine = _make_engine(tmp_path, routes)
+    recorder = _RecorderPlugin()
+    engine.plugin_manager.register(recorder, name="recorder")
+    source = tmp_path / "invoice.txt"
+    source.write_text("Rechnung 42")
+
+    result = _ingest(engine, source)
+
+    assert not result.success
+    assert recorder.calls == []
+
+
+def test_exploding_on_routed_hook_does_not_break_ingest(tmp_path: Path) -> None:
+    engine = _make_engine(tmp_path, _folder_routes(tmp_path))
+    engine.plugin_manager.register(_ExplodingPlugin(), name="boom")
+    source = tmp_path / "invoice.txt"
+    source.write_text("Rechnung 42")
+
+    result = _ingest(engine, source)
+
+    assert result.success
+    assert engine.store.get_recent(limit=1)[0]["status"] == "routed"

@@ -100,7 +100,7 @@ src/arkiv/
 │   ├── watch.py           # Filesystem watcher (watchdog) with Ollama health-check
 │   └── email.py           # IMAP fetch + .eml/.mbox parsing (stdlib only)
 └── plugins/
-    ├── spec.py            # pluggy hookspecs (pre_classify, post_classify, custom_route, on_routed)
+    ├── spec.py            # pluggy hookspecs (pre_classify, post_classify, on_routed)
     └── manager.py         # Plugin discovery via entry_points("arkiv.plugins")
 
 plugins/arkiv-webhook/     # First-party plugin: webhook routes (Slack, Discord, generic)

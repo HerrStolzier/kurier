@@ -216,3 +216,16 @@ def test_serve_allows_non_loopback_with_api_key(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     run.assert_called_once()
+
+
+def test_init_quick_with_config_in_new_directory(tmp_path):
+    """`kurier init --config` in ein noch nicht existierendes Verzeichnis."""
+    from typer.testing import CliRunner
+
+    from arkiv.cli import app
+
+    config_path = tmp_path / "neu" / "tiefer" / "config.toml"
+    result = CliRunner().invoke(app, ["init", "--quick", "--config", str(config_path)])
+
+    assert result.exit_code == 0, result.output
+    assert config_path.exists()

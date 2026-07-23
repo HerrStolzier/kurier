@@ -17,20 +17,12 @@ REQUEST_TIMEOUT = 10.0
 
 @hookimpl
 def on_routed(path: str, destination: str, route_name: str) -> None:
-    """Send a notification when an item is routed to a webhook route."""
-    # This hook fires for ALL routes. The custom_route hook handles
-    # the actual webhook delivery. This is just for logging/observability.
+    """Log the final routing result (observability only).
+
+    Fires exactly once per item with the primary RouteResult; the actual
+    webhook delivery runs through the router's webhook route type.
+    """
     logger.debug("Webhook plugin saw routing: %s → %s (%s)", path, destination, route_name)
-
-
-@hookimpl
-def custom_route(path: str, classification: object) -> dict | None:
-    """Handle webhook route type — POST classified item data to a URL."""
-    # We need access to route config, which isn't passed to custom_route.
-    # The plugin reads its config from the classification context.
-    # For now, this hook is a no-op — webhook routing is handled by
-    # the WebhookRouter registered in the route system.
-    return None
 
 
 def send_webhook(

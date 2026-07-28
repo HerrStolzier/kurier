@@ -16,6 +16,10 @@ gegengelesen" ein belegbarer Claim (type: command) und keine Behauptung.
 
 Backend ist die lokale codex-CLI (`codex exec review`). Fehlt sie, bricht das
 Script ehrlich ab, statt ein Review vorzutaeuschen.
+
+Ungetrackte Dateien werden vor dem Lauf per `git add -N` in den Diff gehoben und
+danach wieder zurueckgesetzt - siehe mark_intent_to_add(). Ohne das reviewte das
+Zweitmodell neue Dateien nicht, waehrend das Gate sie mitfingerprintete.
 """
 
 import argparse
@@ -70,7 +74,12 @@ def gate_query(repo, flag):
     gate = repo / "scripts" / "review_gate.py"
     if not gate.exists():
         return None
-    r = subprocess.run(["python3", str(gate), flag], cwd=repo, capture_output=True, text=True)
+    r = subprocess.run(
+        ["python3", str(gate), flag],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
     if r.returncode != 0:
         return None
     return (r.stdout or "").strip() or None
@@ -99,6 +108,149 @@ def worktree_fingerprint(repo):
     return (r.stdout or "").strip() or None
 
 
+def nul_separated(result):
+    """Pfade aus einer -z-Ausgabe.
+
+    IMMER -z verwenden, nie splitlines(): ohne -z escaped git Pfade mit
+    Sonderzeichen ("sch\\303\\266n.py" statt schön.py, Umbrueche als \\n). Dieser
+    escapte Text ist kein existierender Pfad - `git add -N` scheitert daran mit
+    "pathspec did not match any files", und seit der Fail-closed-Regel bricht
+    damit JEDES Review in so einem Worktree ab (Cross-Model-Review 2026-07-28).
+    """
+    if result.returncode != 0:
+        return []
+    return [p for p in (result.stdout or "").split("\0") if p]
+
+
+def untracked_paths(repo):
+    """Ungetrackte, nicht ignorierte Dateien - dieselbe Menge wie im Gate."""
+    return nul_separated(
+        subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+        )
+    )
+
+
+def mark_intent_to_add(repo, paths):
+    """Ungetrackte Dateien in den Diff heben, den das Zweitmodell zu sehen bekommt.
+
+    Warum ueberhaupt: `codex exec review --uncommitted` sagt laut Hilfe "staged,
+    unstaged, and untracked" zu - haelt das aber nicht verlaesslich. Am
+    2026-07-27 reviewte es in investors-club-global eine Aenderung aus 7 neuen
+    Dateien, sah KEINE davon und meldete stattdessen, die Implementierung fehle.
+    In einem Mini-Repo klappte es. Der Unterschied ist nicht ermittelt und ist
+    auch egal: ein Gate darf nicht davon abhaengen, ob ein Modell zufaellig
+    nachschaut.
+
+    Das ist kein Kosmetikfehler. `review_gate.py` fingerprintet ungetrackte
+    Dateien MIT (changed_code_paths), das Review sah sie aber nicht - ein
+    erfolgreicher Lauf schrieb also last_review.json fuer einen Stand, den nie
+    jemand gelesen hat. Das Gate zertifizierte ungeprueften Code als geprueft,
+    genau die Klasse Fehler, gegen die es gebaut wurde.
+
+    `git add -N` legt nur einen leeren Blob in den Index: der Diff zeigt die
+    Datei als komplette Neuanlage, der Arbeitsbaum bleibt unberuehrt. Gilt fuer
+    `--uncommitted` UND `--base <sha>`, deckt also beide Default-Pfade ab.
+
+    Gibt die Pfade zurueck, die WIRKLICH markiert wurden - nur die duerfen
+    hinterher zurueckgesetzt werden. Ein pauschales `git reset` wuerde dem Nutzer
+    bewusst gestagete Aenderungen wegnehmen.
+
+    Bei einem Fehler (z.B. .git/index.lock von einem parallelen git-Prozess)
+    kommt None zurueck, KEINE leere Liste: der Aufrufer muss dann abbrechen.
+    Weiterlaufen hiesse, mit genau dem Blindfleck zu reviewen, gegen den diese
+    Funktion gebaut ist - und am Ende last_review.json dafuer zu schreiben
+    (Cross-Model-Review 2026-07-28, P1).
+    """
+    if not paths:
+        return []
+    r = subprocess.run(
+        ["git", "add", "-N", "--", *paths],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    if r.returncode != 0:
+        print(
+            "FEHLER: ungetrackte Dateien liessen sich nicht in den Diff heben.",
+            file=sys.stderr,
+        )
+        print((r.stderr or "").strip(), file=sys.stderr)
+        print(
+            "Ohne sie waere das Review blind fuer neue Dateien - und wuerde den Stand\n"
+            "trotzdem freigeben. Lieber kein Review als ein falscher Beleg.",
+            file=sys.stderr,
+        )
+        return None
+    return paths
+
+
+def really_staged(repo):
+    """Pfade mit echtem Index-Inhalt.
+
+    Trennscharf gegen intent-to-add: `git add -N` legt nur einen Platzhalter an,
+    solche Eintraege tauchen in `git diff --cached` NICHT auf, echt gestagete
+    dagegen schon.
+    """
+    return set(
+        nul_separated(
+            subprocess.run(
+                ["git", "diff", "--cached", "--name-only", "-z"],
+                cwd=repo,
+                capture_output=True,
+                text=True,
+            )
+        )
+    )
+
+
+def unmark_intent_to_add(repo, paths):
+    """Markierung zuruecknehmen: die Dateien sind danach wieder ungetrackt.
+
+    Nur die selbst markierten Pfade, nie der ganze Index (s.o.). Laeuft im
+    finally-Zweig, damit ein abgebrochener oder fehlgeschlagener Review den
+    Index des Nutzers nicht veraendert zuruecklaesst.
+
+    Ein Review dauert Minuten. Staged der Nutzer (oder eine parallele Session)
+    in dieser Zeit eine dieser Dateien wirklich, wuerde ein blindes `git reset`
+    ihm diese Arbeit wegnehmen. Deshalb kurz vor dem Zuruecksetzen erneut
+    pruefen, welche Pfade noch reine intent-to-add-Eintraege sind - nur die
+    anfassen (Cross-Model-Review 2026-07-28, P2).
+
+    Scheitert das Zuruecksetzen (Index-Lock), bleibt der Index veraendert. Das
+    still zu schlucken waere ein gebrochenes Versprechen, das niemand bemerkt -
+    also laut melden, mit dem Befehl zum Selberrichten. Die Gate-Korrektheit
+    haengt nicht daran: intent-to-add aendert keine Dateiinhalte, der
+    Fingerabdruck bleibt derselbe.
+    """
+    if not paths:
+        return
+    staged_meanwhile = really_staged(repo)
+    paths = [p for p in paths if p not in staged_meanwhile]
+    if not paths:
+        return
+    r = subprocess.run(
+        ["git", "reset", "--quiet", "--", *paths],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    if r.returncode != 0:
+        print(
+            f"WARNUNG: {len(paths)} Datei(en) bleiben als intent-to-add im Index stehen.",
+            file=sys.stderr,
+        )
+        print((r.stderr or "").strip(), file=sys.stderr)
+        print("Selbst zuruecksetzen mit:", file=sys.stderr)
+        print(
+            f"  git reset -- {' '.join(shlex.quote(p) for p in paths)}",
+            file=sys.stderr,
+        )
+
+
 def find_codex():
     """Die Tool-Shell hat nicht denselben PATH wie die Login-Shell."""
     exe = shutil.which("codex")
@@ -121,7 +273,12 @@ def main():
     scope.add_argument("--base", metavar="BRANCH", help="Diff gegen diesen Branch reviewen")
     scope.add_argument("--commit", metavar="SHA", help="diesen Commit reviewen")
     scope.add_argument(
-        "--uncommitted", action="store_true", help="staged + unstaged + untracked (Default)"
+        "--uncommitted",
+        action="store_true",
+        help=(
+            "staged + unstaged + untracked "
+            "(Default; ungetrackte werden per git add -N sichtbar gemacht)"
+        ),
     )
     ap.add_argument("--prompt", help="zusaetzlicher Fokus fuer den Reviewer")
     ap.add_argument(
@@ -144,7 +301,10 @@ def main():
 
     codex = find_codex()
     if not codex:
-        print("FEHLER: codex-CLI nicht gefunden. Kein Zweitmodell = kein Review.", file=sys.stderr)
+        print(
+            "FEHLER: codex-CLI nicht gefunden. Kein Zweitmodell = kein Review.",
+            file=sys.stderr,
+        )
         print("Kein Review vorzutaeuschen ist besser als ein erfundenes.", file=sys.stderr)
         return 2
 
@@ -195,14 +355,30 @@ def main():
     else:
         cmd += scope_flags
 
+    # Ueberall, wo der Arbeitsbaum im Scope ist. Das schliesst --base ein:
+    # `git diff <base>` vergleicht den ARBEITSBAUM gegen die Basis, nicht HEAD -
+    # getrackte Worktree-Aenderungen sind dort also drin, und ungetrackte
+    # auszunehmen waere derselbe Blindfleck in einem anderen Modus
+    # (Cross-Model-Review 2026-07-28). Nur --commit bleibt aussen vor: das ist
+    # ein abgeschlossener Commit-Diff, in dem der Arbeitsbaum nichts zu suchen hat.
+    marked = [] if args.commit else mark_intent_to_add(repo, untracked_paths(repo))
+    if marked is None:
+        record_command(repo, f"agent_review --{mode.split('-')[0]}", 2)
+        return 2
+
     print(f"Zweitmodell liest gegen: {repo.name} ({mode}) [{args.model}, effort={args.effort}]")
+    if marked:
+        print(f"  + {len(marked)} ungetrackte Datei(en) in den Diff gehoben")
     print(f"$ {' '.join(cmd)}\n")
 
     # Ueber die LOGIN-Shell starten: codex braucht CODEX_HOME/OPENAI_API_KEY aus
     # der zshrc. Ein direkter subprocess erbt die nicht und laeuft in einen
     # irrefuehrenden "Login abgelaufen"-Fehler.
     shell_cmd = " ".join(shlex.quote(c) for c in cmd)
-    proc = subprocess.run(["zsh", "-lic", shell_cmd], cwd=repo, capture_output=True, text=True)
+    try:
+        proc = subprocess.run(["zsh", "-lic", shell_cmd], cwd=repo, capture_output=True, text=True)
+    finally:
+        unmark_intent_to_add(repo, marked)
     output = (proc.stdout or "") + (proc.stderr or "")
 
     # NUR echte codex-Fehlerzeilen auswerten, nicht die gesamte Ausgabe.

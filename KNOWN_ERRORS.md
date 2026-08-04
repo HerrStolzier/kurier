@@ -1,9 +1,9 @@
 # Known Errors
 
 > **Zweck:** Bekannte Fehler in Kurier mit Symptom, Ursache und Loesung.
-> **Scope:** Ruff-Format-Drift, lokale DB-Zustaende, Webhook-Zustellung.
-> **Suchbegriffe:** ruff, format, drift, database, status, webhook, delivery
-> **Stand:** 2026-07-14
+> **Scope:** Ruff-Format-Drift, lokale DB-Zustaende, Webhook-Zustellung, Watcher-Stabilitaetsheuristik.
+> **Suchbegriffe:** ruff, format, drift, database, status, webhook, delivery, watcher, stability, retry, on_modified
+> **Stand:** 2026-08-04
 
 ## Global Ruff Format Drift
 
@@ -46,3 +46,36 @@ Lokale oder LAN-Ziele wie n8n koennen offline sein. Externe Ziele koennen transi
 ### Loesung
 
 Fehlgeschlagene Webhooks ueber die lokale Outbox/Retry-Logik sichtbar halten und mit `kurier webhooks retry` erneut senden.
+
+## Watcher verpasst Nachschreiben nach Schreibpause
+
+Offen. Gefunden im Cross-Model-Review am 2026-08-04 (P2), nachgeprueft am Code,
+noch nicht behoben.
+
+### Symptom
+
+Eine Datei, deren Erzeuger laenger als rund eine Sekunde pausiert und danach
+weiterschreibt, wird in der unfertigen Fassung verarbeitet. Die fertige Fassung
+loest keine erneute Verarbeitung mehr aus. Sichtbar vor allem bei
+Webhook-only-Routen, weil die Datei dort im Eingang liegen bleibt: gesendet wird
+nur der Torso.
+
+### Ursache
+
+`_wait_until_stable()` in `src/arkiv/inlets/watch.py` haelt eine Datei fuer
+fertig, sobald die Groesse bei zwei Messungen im Abstand von 0,5 s gleich
+bleibt. Eine laengere Schreibpause sieht damit aus wie ein Dateiende. Seit
+Commit d760e1b verarbeitet `on_modified()` nur noch Pfade aus
+`_retry_pending`, also nur Dateien, deren Stabilitaetswartezeit in den Timeout
+lief. Ein faelschlich als stabil erkannter Pfad steht dort nicht drin, spaetere
+Modify-Events laufen deshalb ins Leere. Vor d760e1b haette der zweite
+Schreibvorgang eine erneute Verarbeitung ausgeloest.
+
+### Loesung
+
+Noch keine. Ein blosses Zurueckdrehen bringt das Duplikat-Problem zurueck, gegen
+das d760e1b gebaut wurde. Tragfaehig waere, statt eines reinen Merkers die
+zuletzt verarbeitete Signatur (Groesse und mtime) pro Pfad zu speichern und nur
+bei echter Aenderung erneut zu verarbeiten. Bis dahin: bei Webhook-only-Routen
+mit langsamen oder pausierenden Erzeugern die Zustellung stichprobenartig gegen
+die Datei im Eingang pruefen.

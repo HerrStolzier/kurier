@@ -49,8 +49,8 @@ Fehlgeschlagene Webhooks ueber die lokale Outbox/Retry-Logik sichtbar halten und
 
 ## Watcher verpasst Nachschreiben nach Schreibpause
 
-Offen. Gefunden im Cross-Model-Review am 2026-08-04 (P2), nachgeprueft am Code,
-noch nicht behoben.
+Behoben am 2026-08-04. Gefunden im Cross-Model-Review desselben Tages (P2).
+Hier dokumentiert, weil das Symptom in aelteren Staenden auftritt.
 
 ### Symptom
 
@@ -73,9 +73,10 @@ Schreibvorgang eine erneute Verarbeitung ausgeloest.
 
 ### Loesung
 
-Noch keine. Ein blosses Zurueckdrehen bringt das Duplikat-Problem zurueck, gegen
-das d760e1b gebaut wurde. Tragfaehig waere, statt eines reinen Merkers die
-zuletzt verarbeitete Signatur (Groesse und mtime) pro Pfad zu speichern und nur
-bei echter Aenderung erneut zu verarbeiten. Bis dahin: bei Webhook-only-Routen
-mit langsamen oder pausierenden Erzeugern die Zustellung stichprobenartig gegen
-die Datei im Eingang pruefen.
+Der Handler merkt sich jetzt pro Pfad die zuletzt verarbeitete Signatur aus
+Groesse und mtime (`_processed` in `src/arkiv/inlets/watch.py`). Ein
+Modify-Event verarbeitet erneut, wenn diese Signatur sich unterscheidet, und
+wird sonst ignoriert. Damit bleiben Webhook-only-Dateien vor Doppelverarbeitung
+geschuetzt, und wirklich weitergeschriebene Dateien kommen noch einmal dran. Der
+Cooldown greift auf diesem Pfad bewusst nicht: der Erzeuger kann innerhalb des
+Cooldown-Fensters fertig werden, und danach kommt kein Event mehr.

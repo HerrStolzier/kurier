@@ -10,9 +10,14 @@ from threading import Event, Semaphore
 
 from watchdog.events import (
     DirCreatedEvent,
+    DirDeletedEvent,
     DirModifiedEvent,
+    DirMovedEvent,
     FileCreatedEvent,
+    FileDeletedEvent,
     FileModifiedEvent,
+    FileMovedEvent,
+    FileSystemEvent,
     FileSystemEventHandler,
 )
 from watchdog.observers import Observer
@@ -65,6 +70,20 @@ def _wait_until_stable(
     return False
 
 
+def _signature(path: Path) -> tuple[int, int] | None:
+    """Groesse und mtime — woran sich erkennen laesst, ob sich etwas geaendert hat.
+
+    None, wenn die Datei nicht (mehr) lesbar ist. mtime gehoert dazu, weil ein
+    In-place-Write bei gleicher Groesse sonst unsichtbar bliebe — genau der Fall,
+    den auch `_wait_until_stable()` nicht erkennt.
+    """
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return (st.st_size, st.st_mtime_ns)
+
+
 def list_inbox_files(inbox_dir: Path) -> list[Path]:
     """Return visible inbox files in a stable order."""
     if not inbox_dir.exists():
@@ -92,11 +111,15 @@ class InboxHandler(FileSystemEventHandler):
         self.callback = callback
         self.cooldown = cooldown
         self._seen: dict[str, float] = {}
-        # Pfade, deren Stabilitaets-Wartezeit in den Timeout lief — nur fuer
-        # diese sind Modify-Events ein Retry-Signal. Sonst wuerden Dateien,
-        # die nach der Verarbeitung im Eingang bleiben (Webhook-only-Routen),
-        # durch aufgestaute Modify-Events mehrfach verarbeitet.
+        # Pfade, deren Stabilitaets-Wartezeit in den Timeout lief — fuer diese
+        # ist jedes Modify-Event ein Retry-Signal.
         self._retry_pending: set[str] = set()
+        # Stand, in dem ein Pfad zuletzt verarbeitet wurde. Ein Modify-Event
+        # zaehlt nur, wenn sich davon etwas unterscheidet: Dateien, die nach der
+        # Verarbeitung im Eingang liegen bleiben (Webhook-only-Routen), duerfen
+        # durch aufgestaute Events nicht erneut verarbeitet werden — eine Datei,
+        # an der wirklich weitergeschrieben wurde, dagegen schon.
+        self._processed: dict[str, tuple[int, int]] = {}
         self._semaphore = semaphore
         self._stop_event = stop_event
         self._stability_interval = stability_interval
@@ -140,6 +163,11 @@ class InboxHandler(FileSystemEventHandler):
             return
 
         self._retry_pending.discard(src_str)
+        # Vor dem Callback merken: Folder-Routen verschieben die Datei weg, danach
+        # gibt es nichts mehr zu messen.
+        current = _signature(path)
+        if current is not None:
+            self._processed[src_str] = current
 
         logger.info("%s: %s", source_label, path.name)
 
@@ -154,6 +182,14 @@ class InboxHandler(FileSystemEventHandler):
         finally:
             if self._semaphore is not None:
                 self._semaphore.release()
+            # Folder-Routen verschieben die Datei weg. Fuer einen Pfad, den es
+            # nicht mehr gibt, kann es keinen Nachschreibe-Fall geben — und ein
+            # Move-/Delete-Event, das spaeter aufraeumen wuerde, behandelt dieser
+            # Handler nicht. Ohne das waechst `_processed` bei einem lang
+            # laufenden Watcher um jede jemals einsortierte Datei
+            # (Cross-Model-Review 2026-08-04, P2).
+            if not path.exists():
+                self._processed.pop(src_str, None)
 
     def on_created(self, event: DirCreatedEvent | FileCreatedEvent) -> None:
         if event.is_directory:
@@ -161,21 +197,66 @@ class InboxHandler(FileSystemEventHandler):
         self.process_path(self._event_path(event))
 
     def on_modified(self, event: DirModifiedEvent | FileModifiedEvent) -> None:
-        # Retry-Pfad NUR fuer Dateien, deren Stabilitaets-Wartezeit in den
-        # Timeout lief. Alle anderen Modify-Events werden ignoriert — sonst
-        # wuerden bereits verarbeitete Dateien, die im Eingang bleiben
-        # (Webhook-only-Routen), erneut verarbeitet.
+        # Ein Modify-Event zaehlt in zwei Faellen: die Stabilitaets-Wartezeit lief
+        # in den Timeout (Retry), oder die Datei sieht anders aus als bei der
+        # letzten Verarbeitung (es wurde wirklich weitergeschrieben). Alles andere
+        # wird ignoriert, sonst verarbeiten aufgestaute Events dieselbe Datei
+        # mehrfach — sichtbar bei Webhook-only-Routen, wo sie im Eingang bleibt.
+        #
+        # Die reine Merker-Variante (nur Retry zaehlt) hatte eine Luecke: pausiert
+        # der Erzeuger laenger als das Stabilitaetsfenster, gilt der Torso als
+        # fertig, und das Nachschreiben loeste nie eine erneute Verarbeitung aus
+        # (Cross-Model-Review 2026-08-04, P2).
         if event.is_directory:
             return
         path = self._event_path(event)
-        if str(path) not in self._retry_pending:
+        src_str = str(path)
+
+        if src_str in self._retry_pending:
+            self.process_path(path)
             return
-        self.process_path(path)
+
+        last = self._processed.get(src_str)
+        if last is None:
+            # Nie verarbeitet — dafuer ist on_created bzw. der Startscan da.
+            return
+        current = _signature(path)
+        if current is None:
+            self._forget(src_str)  # weg (z.B. von einer Folder-Route verschoben)
+            return
+        if current == last:
+            return
+        # Ohne Cooldown: der Stabilitaets-Wait bremst die Event-Flut bereits, und
+        # der Signaturvergleich verhindert doppelte Arbeit. Mit Cooldown ginge
+        # genau der Nachschreibe-Fall wieder verloren, wenn der Erzeuger
+        # innerhalb des Cooldown-Fensters fertig wird.
+        self.process_path(path, use_cooldown=False)
+
+    def on_deleted(self, event: DirDeletedEvent | FileDeletedEvent) -> None:
+        # Ein Pfad, den es nicht mehr gibt, braucht keine Merker. Ohne diesen
+        # Zweig behielte ein Dienst, der monatelang laeuft, je einen Eintrag fuer
+        # jede Datei, die nach der Verarbeitung im Eingang lag und spaeter von
+        # Hand geloescht wurde (Cross-Model-Review 2026-08-04, P2).
+        if event.is_directory:
+            return
+        self._forget(str(self._event_path(event)))
+
+    def on_moved(self, event: DirMovedEvent | FileMovedEvent) -> None:
+        # Wie on_deleted, nur dass der Pfad woandershin gewandert ist. `src_path`
+        # ist der alte Name — nur der wird vergessen. Das Ziel meldet sich
+        # gegebenenfalls selbst ueber ein Created-Event.
+        if event.is_directory:
+            return
+        self._forget(str(self._event_path(event)))
+
+    def _forget(self, src_str: str) -> None:
+        """Alle Merker zu einem Pfad loeschen."""
+        self._processed.pop(src_str, None)
+        self._seen.pop(src_str, None)
+        self._retry_pending.discard(src_str)
 
     @staticmethod
-    def _event_path(
-        event: DirCreatedEvent | FileCreatedEvent | DirModifiedEvent | FileModifiedEvent,
-    ) -> Path:
+    def _event_path(event: FileSystemEvent) -> Path:
         src = event.src_path
         return Path(src.decode() if isinstance(src, bytes) else src)
 

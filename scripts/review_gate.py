@@ -18,9 +18,10 @@ tools/agent_review ruft es mit --fingerprint bzw. --store auf. Zwei Kopien
 derselben Logik wuerden auseinanderdriften, und dann passt kein Review mehr zu
 keinem Gate.
 
-  python3 scripts/review_gate.py                # Gate
-  python3 scripts/review_gate.py --fingerprint  # Fingerabdruck ausgeben
-  python3 scripts/review_gate.py --store        # Ablageort der Belege ausgeben
+  python3 scripts/review_gate.py                     # Gate
+  python3 scripts/review_gate.py --fingerprint       # Fingerabdruck ausgeben
+  python3 scripts/review_gate.py --fingerprint <rev> # ... gegen eine feste Basislinie
+  python3 scripts/review_gate.py --store             # Ablageort der Belege ausgeben
 """
 
 import hashlib
@@ -408,8 +409,17 @@ def main():
     # Die Abfragemodi duerfen bei einem git-Fehler nichts ausgeben: agent_review
     # liest sie und wuerde eine leere Zeile als gueltige Antwort verbuchen.
     if "--fingerprint" in sys.argv:
+        # Optionale feste Basislinie. agent_review erhebt den Fingerabdruck
+        # zweimal - vor und nach dem Review - und muss beide Male gegen DIESELBE
+        # Basislinie rechnen. Sonst verschiebt ein Beleg aus einem parallelen
+        # Worktree die Basislinie mitten im Lauf, die beiden Fingerabdruecke
+        # unterscheiden sich, und ein voellig korrektes Review wuerde verworfen.
+        # (Cross-Model-Review 2026-08-04, zweite Runde.)
+        i = sys.argv.index("--fingerprint")
+        rest = sys.argv[i + 1:]
+        pinned = rest[0] if rest and not rest[0].startswith("-") else None
         try:
-            print(fingerprint())
+            print(fingerprint(pinned))
         except GitError as e:
             print(f"REVIEW-GATE: Fingerabdruck nicht ermittelbar - {e}", file=sys.stderr)
             return 2

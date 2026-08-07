@@ -1,4 +1,4 @@
-"""Kurier CLI - your AI-powered data pilot."""
+"""Kurier CLI - Dokumente automatisch erkennen und einsortieren."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from arkiv.commands import register_commands
 from arkiv.commands.common import console, launch_tui
 
 app = typer.Typer(
-    name="arkiv",
-    help="Universal capture -> classify -> route. Your AI-powered data pilot.",
+    name="kurier",
+    help="Dokumente automatisch erkennen und einsortieren.",
     no_args_is_help=False,
 )
 
@@ -20,9 +20,9 @@ register_commands(app)
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
-    version: bool = typer.Option(False, "--version", "-V", help="Show version"),
+    version: bool = typer.Option(False, "--version", "-V", help="Version anzeigen"),
 ) -> None:
-    """Kurier - your AI-powered data pilot."""
+    """Kurier - Dokumente automatisch erkennen und einsortieren."""
     if version:
         console.print(f"kurier {__version__}")
         raise typer.Exit()

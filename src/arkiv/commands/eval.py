@@ -17,7 +17,7 @@ from arkiv.evals.llm_benchmark import (
     write_report,
 )
 
-eval_app = typer.Typer(help="Run Kurier evaluation benchmarks.")
+eval_app = typer.Typer(help="KI-Modelle für Kurier testen und vergleichen.")
 
 
 _TASK_LABELS = {
@@ -47,14 +47,14 @@ def llm(
         str,
         typer.Option(
             "--task",
-            help="Benchmark task: classifier, search, or retrieval. Ignored when --all is set.",
+            help="Testaufgabe: classifier, search oder retrieval. Bei --all ohne Wirkung.",
         ),
     ] = "classifier",
     models: Annotated[
         list[str] | None,
-        typer.Option("--models", help="Model spec provider:model. Can be passed multiple times."),
+        typer.Option("--models", help="Modell als provider:model. Mehrfach angebbar."),
     ] = None,
-    run_all: Annotated[bool, typer.Option("--all", help="Run all benchmark tasks.")] = False,
+    run_all: Annotated[bool, typer.Option("--all", help="Alle Testaufgaben ausführen.")] = False,
     output: Annotated[Path | None, typer.Option("--output", "-o")] = None,
     dry_run: Annotated[
         bool,

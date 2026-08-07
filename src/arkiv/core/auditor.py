@@ -164,14 +164,14 @@ class Auditor:
                                 severity="medium",
                                 issue_type="duplicate",
                                 message=(
-                                    f"Possible duplicate: "
+                                    f"Mögliches Duplikat: "
                                     f"'{item.get('summary', '')[:50]}' "
-                                    f"and '{other.get('summary', '')[:50]}' "
-                                    f"(similarity: {similarity:.0%})"
+                                    f"und '{other.get('summary', '')[:50]}' "
+                                    f"(Ähnlichkeit: {similarity:.0%})"
                                 ),
                                 item_id=item_id,
                                 related_id=other_id,
-                                suggested_action=("Review and delete the duplicate"),
+                                suggested_action=("Prüfen und das Duplikat löschen"),
                             )
                         )
                         report.duplicates_found += 1
@@ -191,12 +191,14 @@ class Auditor:
                         severity="low",
                         issue_type="low_confidence",
                         message=(
-                            f"Low confidence ({confidence:.0%}): "
+                            f"Geringe Sicherheit ({confidence:.0%}): "
                             f"'{item.get('summary', '')[:60]}' "
-                            f"classified as '{item.get('category', '?')}'"
+                            f"eingeordnet als '{item.get('category', '?')}'"
                         ),
                         item_id=item["id"],
-                        suggested_action=(f"Verify category '{item.get('category')}' is correct"),
+                        suggested_action=(
+                            f"Prüfen, ob die Dokumentart '{item.get('category')}' stimmt"
+                        ),
                     )
                 )
                 report.low_confidence_count += 1
@@ -214,8 +216,8 @@ class Auditor:
                 AuditIssue(
                     severity="low",
                     issue_type="orphaned",
-                    message=f"Unreviewed file: {f.name}",
-                    suggested_action="Re-classify or manually sort this file",
+                    message=f"Ungeprüfte Datei: {f.name}",
+                    suggested_action="Neu einsortieren lassen oder von Hand ablegen",
                 )
             )
             report.orphaned_count += 1
@@ -239,10 +241,12 @@ class Auditor:
                         severity="high",
                         issue_type="missing",
                         message=(
-                            f"File missing: '{item.get('summary', '')[:40]}' expected at {dest}"
+                            f"Datei fehlt: '{item.get('summary', '')[:40]}' erwartet unter {dest}"
                         ),
                         item_id=item["id"],
-                        suggested_action=("File was moved or deleted after routing"),
+                        suggested_action=(
+                            "Die Datei wurde nach dem Einsortieren verschoben oder gelöscht"
+                        ),
                     )
                 )
                 report.missing_count += 1
@@ -290,12 +294,14 @@ class Auditor:
                         severity="high",
                         issue_type="misclassified",
                         message=(
-                            f"Was '{old_category}', now classified as "
+                            f"War '{old_category}', jetzt eingeordnet als "
                             f"'{new_category}' ({new_result.confidence:.0%}): "
                             f"'{item.get('summary', '')[:50]}'"
                         ),
                         item_id=item["id"],
-                        suggested_action=(f"Move from '{old_category}' to '{new_category}'"),
+                        suggested_action=(
+                            f"Von '{old_category}' nach '{new_category}' verschieben"
+                        ),
                     )
                 )
                 report.misclassifications_found += 1

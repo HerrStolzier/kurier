@@ -64,15 +64,6 @@ Dieser Bereich aktualisiert sich automatisch. Du siehst dort Quelle, erkannte Ar
 sprechenden Namen und Ablage. Wenn etwas falsch wirkt, wechselst du in die Pruefliste und
 korrigierst die Kategorie. Auch `kurier status` zeigt das zuletzt erledigte Dokument.
 
-> **Alternative install methods:**
-> ```bash
-> # With pip (requires a virtual environment)
-> pip install "kurier @ git+https://github.com/HerrStolzier/kurier.git"
->
-> # With uv
-> uv pip install "kurier @ git+https://github.com/HerrStolzier/kurier.git"
-> ```
-
 ### Befehle
 
 Alle wichtigen Funktionen gibt es auch einzeln:
@@ -122,12 +113,12 @@ Kurier ruft KI-Anbieter zentral über `src/arkiv/core/llm.py` auf:
 
 | Anbieter | Einstellung |
 |----------|--------|
-| Ollama (local) | `provider = "ollama"`, `model = "qwen2.5:7b"` |
+| Ollama (lokal) | `provider = "ollama"`, `model = "qwen2.5:7b"` |
 | OpenAI | `provider = "openai"`, `model = "gpt-4o-mini"` |
 | Anthropic | `provider = "anthropic"`, `model = "claude-sonnet-4-5-20250514"` |
 | HuggingFace | `provider = "huggingface"`, `model = "openai/gpt-oss-20b:fastest"` plus `HF_TOKEN` |
 
-Hugging Face uses the Inference Providers router by default:
+Hugging Face nutzt standardmäßig den Inference-Providers-Router:
 
 ```toml
 [llm]
@@ -139,61 +130,6 @@ base_url = "https://router.huggingface.co/v1"  # optional default
 Für lokale Ollama-Modelle prüft Kurier beim Setup und im Gesundheitscheck, ob der verfügbare
 Arbeitsspeicher ungefähr zum Modell passt. Die Modelltests wählen ebenfalls ein konservatives
 Standardmodell für den erkannten Rechner.
-
-## Model Quality Checks
-
-Kurier can test which AI model works best for your documents. The check answers three practical
-questions:
-
-- Can the model recognize what kind of document it is?
-- Can it understand search questions well enough to improve search?
-- Does it actually find the right document, not just sound confident?
-
-For everyday use, start with the full check:
-
-```bash
-kurier eval llm --all --output eval-results/latest.json
-```
-
-You can also test specific models:
-
-```bash
-kurier eval llm --task retrieval --models baseline --models ollama:qwen2.5:7b
-kurier eval llm --task search --models huggingface:openai/gpt-oss-20b:fastest
-```
-
-The screen output is a readable summary. The JSON report keeps the detailed numbers for later
-comparison, including quality score, runtime, errors, and task-specific metrics. `baseline` means
-"no AI help" and shows whether a model really improves the search compared with plain keyword
-retrieval.
-
-## REST API
-
-The API server ships with the main package, so if `kurier` is already installed you can start it directly:
-
-```bash
-kurier serve
-# → http://127.0.0.1:8790/docs (Swagger UI)
-```
-
-**Endpoints:**
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/health` | Health check |
-| `POST` | `/ingest/file` | Upload a file for classification |
-| `POST` | `/ingest/text` | Submit text for classification |
-| `GET` | `/search?q=...` | Hybrid keyword + semantic search |
-| `GET` | `/status` | Processing statistics |
-| `GET` | `/recent` | Recently processed items |
-
-```bash
-# Example: ingest a file via curl
-curl -X POST http://localhost:8790/ingest/file -F "file=@invoice.pdf"
-
-# Example: search
-curl "http://localhost:8790/search?q=Telefonkosten&mode=auto"
-```
 
 ## Erweiterungen
 
@@ -224,7 +160,92 @@ my-plugin = "my_arkiv_plugin"
 
 Details stehen im [Plugin Guide](docs/plugins.md).
 
-## Architecture
+## Aktueller Produktstatus
+
+Stand: **2026-05-18**.
+
+| Status | Was das praktisch bedeutet |
+|--------|----------------------------|
+| **Stabil** | Installation, Einrichtung, Gesundheitscheck, Datei-Verarbeitung, Ordner-Ablage, Undo/Export und der lokale Grundfluss sind end-to-end geprüft. |
+| **Nutzbar** | KI-gestützte Suche, Benchmarksystem, n8n/Webhook-Anbindung und RAM-bewusste Modellwahl sind integriert. Die Qualität hängt weiter vom gewählten Modell ab. |
+| **Im Feinschliff** | Der Eingangsordner-Flow zeigt Ergebnisse jetzt im Dashboard unter “Letzte Dokumente” und in `kurier status`; der echte 5-Tage-Alltagstest steht noch aus. |
+| **Später** | Browser-Erweiterung und voll ausgebaute E-Mail-Zuführung bleiben bewusst optional und gehören nicht zum aktuellen Kern. |
+
+Die ausführliche Begründung zu diesem Stand steht in
+[docs/product-maturity.md](docs/product-maturity.md).
+
+---
+
+## Für Entwickler (English)
+
+Everything below targets developers and stays in English.
+
+### Alternative install methods
+
+```bash
+# With pip (requires a virtual environment)
+pip install "kurier @ git+https://github.com/HerrStolzier/kurier.git"
+
+# With uv
+uv pip install "kurier @ git+https://github.com/HerrStolzier/kurier.git"
+```
+
+### Model Quality Checks
+
+Kurier can test which AI model works best for your documents. The check answers three practical
+questions:
+
+- Can the model recognize what kind of document it is?
+- Can it understand search questions well enough to improve search?
+- Does it actually find the right document, not just sound confident?
+
+For everyday use, start with the full check:
+
+```bash
+kurier eval llm --all --output eval-results/latest.json
+```
+
+You can also test specific models:
+
+```bash
+kurier eval llm --task retrieval --models baseline --models ollama:qwen2.5:7b
+kurier eval llm --task search --models huggingface:openai/gpt-oss-20b:fastest
+```
+
+The screen output is a readable summary. The JSON report keeps the detailed numbers for later
+comparison, including quality score, runtime, errors, and task-specific metrics. `baseline` means
+"no AI help" and shows whether a model really improves the search compared with plain keyword
+retrieval.
+
+### REST API
+
+The API server ships with the main package, so if `kurier` is already installed you can start it directly:
+
+```bash
+kurier serve
+# → http://127.0.0.1:8790/docs (Swagger UI)
+```
+
+**Endpoints:**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/health` | Health check |
+| `POST` | `/ingest/file` | Upload a file for classification |
+| `POST` | `/ingest/text` | Submit text for classification |
+| `GET` | `/search?q=...` | Hybrid keyword + semantic search |
+| `GET` | `/status` | Processing statistics |
+| `GET` | `/recent` | Recently processed items |
+
+```bash
+# Example: ingest a file via curl
+curl -X POST http://localhost:8790/ingest/file -F "file=@invoice.pdf"
+
+# Example: search
+curl "http://localhost:8790/search?q=Telefonkosten&mode=auto"
+```
+
+### Architecture
 
 ```
 src/arkiv/
@@ -244,20 +265,7 @@ src/arkiv/
 └── routes/             # Built-in route handlers
 ```
 
-## Aktueller Produktstatus
-
-Stand: **2026-05-18**.
-
-| Status | Was das praktisch bedeutet |
-|--------|----------------------------|
-| **Stabil** | Installation, Einrichtung, Gesundheitscheck, Datei-Verarbeitung, Ordner-Ablage, Undo/Export und der lokale Grundfluss sind end-to-end geprüft. |
-| **Nutzbar** | KI-gestützte Suche, Benchmarksystem, n8n/Webhook-Anbindung und RAM-bewusste Modellwahl sind integriert. Die Qualität hängt weiter vom gewählten Modell ab. |
-| **Im Feinschliff** | Der Eingangsordner-Flow zeigt Ergebnisse jetzt im Dashboard unter “Letzte Dokumente” und in `kurier status`; der echte 5-Tage-Alltagstest steht noch aus. |
-| **Später** | Browser-Erweiterung und voll ausgebaute E-Mail-Zuführung bleiben bewusst optional und gehören nicht zum aktuellen Kern. |
-
-If you want the longer rationale behind this snapshot, see [docs/product-maturity.md](docs/product-maturity.md).
-
-## Roadmap
+### Roadmap
 
 - [x] Core pipeline: capture → classify → route
 - [x] CLI interface
@@ -277,7 +285,7 @@ If you want the longer rationale behind this snapshot, see [docs/product-maturit
 - [x] Transaction safety (pending → routed/failed)
 - [x] Custom categories via config
 
-## Development
+### Development
 
 ```bash
 # Clone
@@ -300,7 +308,7 @@ ruff check src/
 mypy src/arkiv/ --ignore-missing-imports
 ```
 
-## Troubleshooting
+### Troubleshooting
 
 If local development feels "almost working" but commands fail in strange ways, these are the most common fixes:
 

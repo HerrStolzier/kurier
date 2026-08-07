@@ -30,7 +30,7 @@ def list_webhooks(
     ),
     limit: int = typer.Option(20, "--limit", "-n", min=1),
 ) -> None:
-    """Show pending and failed webhook deliveries."""
+    """Offene und fehlgeschlagene Webhook-Zustellungen anzeigen."""
     ctx = get_context(config)
     statuses = ("pending", "failed", "delivered") if all_statuses else ("pending", "failed")
     rows = ctx.engine.store.list_webhook_outbox(statuses=statuses, limit=limit)
@@ -71,7 +71,7 @@ def retry_webhooks(
     ),
     max_attempts: int = typer.Option(5, "--max-attempts", min=1),
 ) -> None:
-    """Retry due webhook deliveries from the local outbox."""
+    """Fällige Webhook-Zustellungen erneut senden."""
     ctx = get_context(config)
     rows = ctx.engine.store.list_webhook_outbox(
         statuses=("pending", "failed"),
@@ -105,7 +105,7 @@ def retry_webhooks(
         terminal = next_attempt_count >= max_attempts
         ctx.engine.store.mark_webhook_failed(
             row["id"],
-            error="Webhook retry failed",
+            error="Erneuter Versuch fehlgeschlagen",
             next_attempt_at=None if terminal else _next_retry_at(next_attempt_count),
             terminal=terminal,
         )

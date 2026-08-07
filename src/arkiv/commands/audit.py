@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 
 def audit(
-    fix: bool = typer.Option(False, "--fix", help="Interactive fix mode"),
+    fix: bool = typer.Option(False, "--fix", help="Probleme direkt beheben (interaktiv)"),
     skip_reclassify: bool = typer.Option(
         False,
         "--skip-reclassify",
@@ -25,7 +25,7 @@ def audit(
     config: Path | None = typer.Option(None, "--config", "-c"),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ) -> None:
-    """Audit routing decisions — find duplicates, errors, and orphaned files."""
+    """Selbstprüfung: Duplikate, Fehler und liegengebliebene Dateien finden."""
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
 
@@ -33,18 +33,20 @@ def audit(
 
     cfg = get_config(config)
     if not cfg.database.path.exists():
-        console.print("[dim]No items to audit yet.[/dim]")
+        console.print(
+            "[dim]Noch nichts zu prüfen — es wurden noch keine Dokumente verarbeitet.[/dim]"
+        )
         return
 
-    console.print("[blue]Running audit...[/blue]\n")
+    console.print("[blue]Selbstprüfung läuft...[/blue]\n")
 
     auditor = Auditor(cfg)
     report = auditor.run_full_audit(check_misclassified=not skip_reclassify)
 
-    console.print(f"[bold]Audit Report[/bold]  ({report.items_checked} items checked)\n")
+    console.print(f"[bold]Prüfbericht[/bold]  ({report.items_checked} Einträge geprüft)\n")
 
     if not report.has_issues:
-        console.print("[green]No issues found. Everything looks good.[/green]")
+        console.print("[green]Keine Probleme gefunden. Alles in Ordnung.[/green]")
         return
 
     high = [i for i in report.issues if i.severity == "high"]
@@ -52,19 +54,19 @@ def audit(
     low = [i for i in report.issues if i.severity == "low"]
 
     if high:
-        console.print(f"[red bold]{len(high)} high severity[/red bold]")
+        console.print(f"[red bold]{len(high)} wichtig[/red bold]")
     if medium:
-        console.print(f"[yellow bold]{len(medium)} medium severity[/yellow bold]")
+        console.print(f"[yellow bold]{len(medium)} mittel[/yellow bold]")
     if low:
-        console.print(f"[dim]{len(low)} low severity[/dim]")
+        console.print(f"[dim]{len(low)} gering[/dim]")
     console.print()
 
     issue_table = Table(show_header=True, border_style="dim")
     issue_table.add_column("#", style="dim", width=3)
-    issue_table.add_column("Sev", width=6)
-    issue_table.add_column("Type", width=14)
-    issue_table.add_column("Issue")
-    issue_table.add_column("Action", style="dim")
+    issue_table.add_column("Stufe", width=8)
+    issue_table.add_column("Art", width=22)
+    issue_table.add_column("Problem")
+    issue_table.add_column("Empfehlung", style="dim")
 
     severity_style = {"high": "red", "medium": "yellow", "low": "dim"}
 
@@ -81,7 +83,7 @@ def audit(
     console.print(issue_table)
 
     if fix:
-        console.print("\n[bold]Fix Mode[/bold] — resolve issues interactively\n")
+        console.print("\n[bold]Behebungs-Modus[/bold] — Probleme einzeln durchgehen\n")
         _run_interactive_fixes(cfg, report)
 
 
@@ -90,53 +92,55 @@ def _run_interactive_fixes(cfg: ArkivConfig, report: AuditReport) -> None:
     fixable = [i for i in report.issues if i.issue_type in ("orphaned", "misclassified")]
 
     if not fixable:
-        console.print("[dim]No auto-fixable issues. Manual review needed.[/dim]")
+        console.print("[dim]Nichts automatisch behebbar. Bitte von Hand prüfen.[/dim]")
         return
 
     fixed = 0
     for issue in fixable:
         console.print(f"\n[bold]{issue.issue_type}:[/bold] {issue.message}")
-        console.print(f"[dim]Suggested: {issue.suggested_action}[/dim]")
+        console.print(f"[dim]Empfehlung: {issue.suggested_action}[/dim]")
 
         if issue.issue_type == "orphaned":
             answer = (
-                console.input("[bold]Re-classify this file? [y/n/skip all]:[/bold] ")
+                console.input(
+                    "[bold]Datei neu einsortieren lassen? [j/n/alle überspringen]:[/bold] "
+                )
                 .strip()
                 .lower()
             )
-            if answer == "y":
+            if answer in ("j", "y"):
                 success = _fix_reclassify_orphan(cfg, issue.message)
                 if success:
-                    console.print("[green]  Fixed.[/green]")
+                    console.print("[green]  Behoben.[/green]")
                     fixed += 1
                 else:
-                    console.print("[red]  Failed to re-classify.[/red]")
-            elif answer == "skip all":
+                    console.print("[red]  Neu-Einsortieren hat nicht geklappt.[/red]")
+            elif answer in ("alle überspringen", "skip all"):
                 break
 
         elif issue.issue_type == "misclassified":
             answer = (
-                console.input("[bold]Accept new classification? [y/n/skip all]:[/bold] ")
+                console.input("[bold]Neue Einordnung übernehmen? [j/n/alle überspringen]:[/bold] ")
                 .strip()
                 .lower()
             )
-            if answer == "y":
+            if answer in ("j", "y"):
                 console.print(
-                    "[dim]  (DB updated. File was already moved by original routing — "
-                    "manual move may be needed.)[/dim]"
+                    "[dim]  (Eintrag aktualisiert. Die Datei liegt noch am alten Ort — "
+                    "bei Bedarf von Hand verschieben.)[/dim]"
                 )
                 fixed += 1
-            elif answer == "skip all":
+            elif answer in ("alle überspringen", "skip all"):
                 break
 
-    console.print(f"\n[green]Done.[/green] Fixed {fixed} issue(s).")
+    console.print(f"\n[green]Fertig.[/green] {fixed} Problem(e) behoben.")
 
 
 def _fix_reclassify_orphan(cfg: ArkivConfig, message: str) -> bool:
     """Re-classify an orphaned file from the review directory."""
     from arkiv.core.engine import Engine
 
-    prefix = "Unreviewed file: "
+    prefix = "Ungeprüfte Datei: "
     if prefix not in message:
         return False
     filename = message.split(prefix, 1)[1].strip()

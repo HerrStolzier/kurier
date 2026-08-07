@@ -11,11 +11,11 @@ from arkiv.commands.common import console, get_context
 
 
 def import_email(
-    path: Path = typer.Argument(..., help="Path to .eml or .mbox file"),
+    path: Path = typer.Argument(..., help="Pfad zur .eml- oder .mbox-Datei"),
     config: Path | None = typer.Option(None, "--config", "-c"),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ) -> None:
-    """Import and classify emails from .eml or .mbox files."""
+    """E-Mails aus .eml- oder .mbox-Dateien einlesen und einsortieren."""
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
 
@@ -26,7 +26,7 @@ def import_email(
     engine = ctx.engine
 
     if not path.exists():
-        console.print(f"[red]Not found:[/red] {path}")
+        console.print(f"[red]Nicht gefunden:[/red] {path}")
         raise typer.Exit(1)
 
     suffix = path.suffix.lower()
@@ -35,10 +35,10 @@ def import_email(
     elif suffix == ".mbox":
         emails = parse_mbox(path)
     else:
-        console.print(f"[red]Unsupported format:[/red] {suffix} (use .eml or .mbox)")
+        console.print(f"[red]Format wird nicht unterstützt:[/red] {suffix} (nutze .eml oder .mbox)")
         raise typer.Exit(1)
 
-    console.print(f"[blue]Processing {len(emails)} email(s)...[/blue]\n")
+    console.print(f"[blue]Verarbeite {len(emails)} E-Mail(s)...[/blue]\n")
 
     for i, parsed in enumerate(emails, 1):
         console.print(f"[dim]#{i}[/dim] {parsed.subject}")
@@ -63,21 +63,21 @@ def import_email(
                     console.print(f"  [red]  ↳[/red] {att_path.name}: {att_result.message}")
                 att_path.unlink(missing_ok=True)
 
-    console.print(f"\n[green]Done.[/green] Processed {len(emails)} email(s).")
+    console.print(f"\n[green]Fertig.[/green] {len(emails)} E-Mail(s) verarbeitet.")
 
 
 def fetch_email(
-    host: str = typer.Option(..., "--host", help="IMAP server (e.g. imap.gmail.com)"),
-    username: str = typer.Option(..., "--user", "-u", help="Email address"),
+    host: str = typer.Option(..., "--host", help="IMAP-Server (z.B. imap.gmail.com)"),
+    username: str = typer.Option(..., "--user", "-u", help="E-Mail-Adresse"),
     password: str = typer.Option(
-        ..., "--password", "-p", prompt=True, hide_input=True, help="Password/app password"
+        ..., "--password", "-p", prompt=True, hide_input=True, help="Passwort bzw. App-Passwort"
     ),
     folder: str = typer.Option("INBOX", "--folder", "-f"),
     limit: int = typer.Option(20, "--limit", "-n"),
     config: Path | None = typer.Option(None, "--config", "-c"),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ) -> None:
-    """Fetch and classify unread emails from an IMAP server."""
+    """Ungelesene E-Mails vom Mail-Server abholen und einsortieren."""
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
 
@@ -87,19 +87,19 @@ def fetch_email(
     cfg = ctx.config
     engine = ctx.engine
 
-    console.print(f"[blue]Connecting to {host}...[/blue]")
+    console.print(f"[blue]Verbinde mit {host}...[/blue]")
 
     try:
         emails = fetch_imap(host, username, password, folder=folder, limit=limit)
     except Exception as e:
-        console.print(f"[red]Connection failed:[/red] {e}")
+        console.print(f"[red]Verbindung fehlgeschlagen:[/red] {e}")
         raise typer.Exit(1) from None
 
     if not emails:
-        console.print("[dim]No unread emails.[/dim]")
+        console.print("[dim]Keine ungelesenen E-Mails.[/dim]")
         return
 
-    console.print(f"[blue]Processing {len(emails)} email(s)...[/blue]\n")
+    console.print(f"[blue]Verarbeite {len(emails)} E-Mail(s)...[/blue]\n")
 
     for i, parsed in enumerate(emails, 1):
         console.print(f"[dim]#{i}[/dim] {parsed.subject}")
@@ -123,7 +123,7 @@ def fetch_email(
                     console.print(f"  [green]  ↳[/green] {att_path.name}: {att_result.message}")
                 att_path.unlink(missing_ok=True)
 
-    console.print(f"\n[green]Done.[/green] Processed {len(emails)} email(s).")
+    console.print(f"\n[green]Fertig.[/green] {len(emails)} E-Mail(s) verarbeitet.")
 
 
 def register(app: typer.Typer) -> None:

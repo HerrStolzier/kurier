@@ -29,23 +29,25 @@ def serve(
     force: bool = typer.Option(
         False,
         "--force",
-        help="Deprecated. Non-localhost bindings always require --api-key.",
+        help="Veraltet. Zugriff von außen braucht immer --api-key.",
     ),
     api_key: str | None = typer.Option(
         None,
         "--api-key",
         envvar="KURIER_API_KEY",
-        help="API key required for non-localhost access (header: x-api-key).",
+        help="Zugangsschlüssel für Zugriff von anderen Geräten (Header: x-api-key).",
     ),
 ) -> None:
-    """Start the REST API server."""
+    """Web-Oberfläche und Schnittstelle starten (Dashboard im Browser)."""
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
 
     try:
         import uvicorn
     except ImportError:
-        console.print("[red]Missing dependency.[/red] Reinstall Kurier to restore API packages:")
+        console.print(
+            "[red]Ein Baustein fehlt.[/red] Installiere Kurier neu, dann ist er wieder da:"
+        )
         console.print('  pip install "kurier @ git+https://github.com/HerrStolzier/kurier.git"')
         raise typer.Exit(1) from None
 
@@ -58,16 +60,16 @@ def serve(
                 else ""
             )
             console.print(
-                f"\n[red bold]Fehler:[/red bold] Binding to [bold]{host}[/bold] "
-                "exposes the API to your network.\n"
-                "Use [bold]--api-key <key>[/bold] to require authentication.\n"
+                f"\n[red bold]Fehler:[/red bold] Mit [bold]{host}[/bold] wäre Kurier "
+                "für andere Geräte im Netzwerk erreichbar.\n"
+                "Setze [bold]--api-key <schlüssel>[/bold], damit nur Berechtigte zugreifen.\n"
                 f"{force_note}"
             )
             raise typer.Exit(1)
 
         console.print(
-            f"\n[yellow]Non-localhost binding:[/yellow] "
-            f"[bold]{host}:{port}[/bold] — API key authentication active.\n"
+            f"\n[yellow]Erreichbar im Netzwerk:[/yellow] "
+            f"[bold]{host}:{port}[/bold] — Zugangsschlüssel ist Pflicht.\n"
         )
 
     from arkiv.inlets.api import create_app
@@ -77,8 +79,8 @@ def serve(
     api = create_app(cfg, api_key=api_key, localhost_only=localhost_only)
 
     console.print(f"\n[bold]Kurier API[/bold] v{__version__}")
-    console.print(f"[dim]Docs:[/dim]    http://{host}:{port}/docs")
-    console.print(f"[dim]Health:[/dim]  http://{host}:{port}/health\n")
+    console.print(f"[dim]Dashboard:[/dim] http://{host}:{port}/dashboard/")
+    console.print(f"[dim]API-Doku:[/dim]  http://{host}:{port}/docs\n")
 
     uvicorn.run(api, host=host, port=port, log_level="info")
 

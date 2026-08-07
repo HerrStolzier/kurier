@@ -156,9 +156,10 @@ B008 and RUF012 are ignored globally — B008: typer.Argument/Option in defaults
 Tailwind CSS is pre-built and committed to git. Rebuild after template changes:
 ```bash
 cd src/arkiv/dashboard
+npm install   # nur nach frischem Checkout nötig (node_modules/ ist nicht committet)
 ./node_modules/.bin/tailwindcss -i input.css -o static/styles.css --minify
 ```
-The `node_modules/` and `package.json` live in `src/arkiv/dashboard/`. Do NOT commit `node_modules/`.
+`package.json` (committet) pinnt `tailwindcss` + `@tailwindcss/cli` auf 4.2.2 — die Version, mit der das committete CSS gebaut wurde. `node_modules/` ist git-ignoriert, NICHT committen. Nach dem Rebuild `git diff static/styles.css` prüfen: Neue Klassen müssen in den Templates vorkommen.
 
 ## API Server Flags (kurier serve)
 

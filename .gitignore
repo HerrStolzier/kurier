@@ -48,3 +48,6 @@ coverage.xml
 *.db-wal
 .aider*
 eval-results/
+
+# Node (dashboard CSS build)
+node_modules/

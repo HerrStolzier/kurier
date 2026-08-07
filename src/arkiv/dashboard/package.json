@@ -1,0 +1,9 @@
+{
+  "name": "arkiv-dashboard-css",
+  "private": true,
+  "description": "Tailwind CSS build setup for the kurier dashboard. Rebuild: ./node_modules/.bin/tailwindcss -i input.css -o static/styles.css --minify",
+  "devDependencies": {
+    "@tailwindcss/cli": "4.2.2",
+    "tailwindcss": "4.2.2"
+  }
+}

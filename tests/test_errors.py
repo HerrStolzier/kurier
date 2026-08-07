@@ -43,6 +43,23 @@ def test_permission_error_nennt_berechtigungen() -> None:
     assert "Berechtigungen" in msg
 
 
+def test_eperm_auf_datei_nennt_berechtigungen_nicht_ollama() -> None:
+    """EPERM heisst "Operation not permitted" — derselbe Wortlaut, den auch ein
+    blockierter Verbindungsversuch traegt. Der typisierte PermissionError muss
+    gewinnen, sonst schickt die Meldung den Nutzer in die Ollama-App, obwohl das
+    Problem eine Datei-Berechtigung ist (Cross-Model-Review 2026-08-07, P2)."""
+    msg = friendly_error(PermissionError(1, "Operation not permitted"))
+    assert "Berechtigungen" in msg
+    assert "Ollama" not in msg
+
+
+def test_netzwerkfehler_mit_eperm_wortlaut_bleibt_ollama_hinweis() -> None:
+    """Gegenprobe: dieselbe Formulierung ohne PermissionError-Typ — so kommen
+    httpx-/urllib-Fehler an — muss weiterhin auf Ollama zeigen."""
+    msg = friendly_error(URLError("[Errno 1] Operation not permitted"), provider="ollama")
+    assert "Ollama" in msg
+
+
 def test_unbekannter_fehler_bleibt_kurz_und_handlungsorientiert() -> None:
     msg = friendly_error(ValueError("x" * 500))
     assert len(msg) < 200
@@ -58,3 +75,13 @@ def test_datei_berechtigung_schlaegt_nicht_der_ki_zu() -> None:
     msg = friendly_error(PermissionError(1, "Operation not permitted"), provider="ollama")
     assert "Ollama" not in msg
     assert "Berechtigungen" in msg
+
+
+def test_httpx_eperm_verbindungsfehler_zeigt_auf_ollama() -> None:
+    """httpx meldet einen blockierten Verbindungsversuch ohne OSError-Typ."""
+
+    class FakeConnectError(Exception):
+        pass
+
+    msg = friendly_error(FakeConnectError("[Errno 1] Operation not permitted"), provider="ollama")
+    assert "Ollama" in msg

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
-import os
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -13,13 +13,30 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-def file_source_signature(st: os.stat_result) -> str:
-    """Erkennungsmerkmal einer Quelldatei: Groesse und mtime in Nanosekunden.
+_DIGEST_CHUNK = 1024 * 1024
 
-    Dasselbe Merkmal, das der Watcher in-memory nutzt — hier persistiert,
-    damit ein Neustart erkennt, ob genau diese Version schon geroutet wurde.
+
+def file_source_signature(path: Path) -> str:
+    """Erkennungsmerkmal einer Quelldatei: SHA-256 ueber den Inhalt plus Groesse.
+
+    Hier persistiert, damit ein Neustart erkennt, ob genau DIESE Version schon
+    geroutet wurde. Groesse+mtime allein reichte dafuer nicht: wird eine Datei
+    durch anderen Inhalt gleicher Groesse ersetzt und der Zeitstempel dabei
+    erhalten (Backup-Restore, `cp -p`, rsync, In-place-Write mit anschliessendem
+    `touch -r`), war das Merkmal identisch — der neue Inhalt galt als bereits
+    verarbeitet und wurde nach jedem Neustart uebersprungen, dauerhaft
+    (Cross-Model-Review 2026-08-07, P1).
+
+    Kosten: die Datei wird einmal gelesen. Das passiert nur beim Einlesen und
+    beim Startscan ueber den Eingangsordner, nicht pro Event.
     """
-    return f"{st.st_size}:{st.st_mtime_ns}"
+    digest = hashlib.sha256()
+    size = 0
+    with path.open("rb") as handle:
+        while chunk := handle.read(_DIGEST_CHUNK):
+            size += len(chunk)
+            digest.update(chunk)
+    return f"sha256:{digest.hexdigest()}:{size}"
 
 
 TABLE_SCHEMA = """\
@@ -388,17 +405,22 @@ class Store:
         Existiert schon ein failed-Eintrag für dieselbe Datei im selben Stand,
         wird nur der Grund und der Zeitstempel aufgefrischt.
         """
+        # Alt-Format-Signaturen (size:mtime, vor dem SHA-Umbau) zaehlen als
+        # Treffer und werden dabei auf das neue Format gehoben — sonst
+        # entstuende nach dem Upgrade genau ein Duplikat pro Fehlschlag.
         row = self._conn.execute(
             "SELECT id FROM items WHERE original_path = ? AND status = 'failed' "
-            "AND ifnull(source_signature, '') = ifnull(?, '') "
-            "ORDER BY id DESC LIMIT 1",
-            (original_path, source_signature),
+            "AND (ifnull(source_signature, '') = ifnull(?, '') "
+            "     OR ifnull(source_signature, '') NOT LIKE 'sha256:%') "
+            "ORDER BY (ifnull(source_signature, '') = ifnull(?, '')) DESC, id DESC LIMIT 1",
+            (original_path, source_signature, source_signature),
         ).fetchone()
         if row is not None:
             item_id = int(row["id"])
             self._conn.execute(
-                "UPDATE items SET failure_reason = ?, created_at = ? WHERE id = ?",
-                (reason, datetime.now(UTC).isoformat(), item_id),
+                "UPDATE items SET failure_reason = ?, created_at = ?, "
+                "source_signature = ? WHERE id = ?",
+                (reason, datetime.now(UTC).isoformat(), source_signature, item_id),
             )
             self._conn.commit()
             return item_id
@@ -760,21 +782,23 @@ class Store:
     def was_routed_unchanged(self, original_path: str, source_signature: str) -> bool:
         """True, wenn genau DIESE Version der Datei bereits erfolgreich geroutet wurde.
 
-        Massgeblich ist ausschliesslich das persistierte Datei-Kennzeichen
-        (Groesse:mtime_ns) — dieselbe Identitaets-Heuristik, die der Watcher
-        in-memory nutzt. Ein Zeitvergleich stattdessen uebersieht Ersetzungen,
-        die einen aelteren Zeitstempel mitbringen (cp -p, rsync, Backup-
-        Restore) — die neue Datei wuerde fuer immer uebersprungen
-        (Cross-Model-Review 2026-08-06, P1).
+        Massgeblich ist ausschliesslich das persistierte Datei-Kennzeichen, nicht
+        ein Zeitvergleich: der uebersieht Ersetzungen, die einen aelteren
+        Zeitstempel mitbringen (cp -p, rsync, Backup-Restore) — die neue Datei
+        wuerde fuer immer uebersprungen (Cross-Model-Review 2026-08-06, P1).
 
-        Alt-Zeilen ohne Kennzeichen matchen bewusst NIE: nach dem Upgrade wird
-        eine liegengebliebene Webhook-only-Datei damit genau einmal erneut
-        verarbeitet (neue Zeile inklusive Kennzeichen). Ein Zeit-Fallback fuer
-        diese Zeilen waere dauerhaft verlustbehaftet, die Einmal-Verarbeitung
-        ist es nicht (Cross-Model-Review 2026-08-06, P1).
+        Alt-Zeilen matchen bewusst NIE — weder die ganz ohne Kennzeichen noch die
+        im frueheren Groesse:mtime-Format. Nach dem Upgrade wird eine
+        liegengebliebene Webhook-only-Datei damit genau einmal erneut verarbeitet
+        (neue Zeile inklusive Fingerabdruck). Alte Kennzeichen weiter zu
+        akzeptieren waere dauerhaft verlustbehaftet, die Einmal-Verarbeitung ist
+        es nicht (Cross-Model-Review 2026-08-06 P1, 2026-08-07 P1).
 
         Nur status='routed' zaehlt: pending/failed sollen erneut versucht werden.
         """
+        if not source_signature:
+            return False
+
         row = self._conn.execute(
             "SELECT 1 FROM items"
             " WHERE original_path = ? AND status = 'routed' AND source_signature = ?"

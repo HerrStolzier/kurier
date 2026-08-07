@@ -71,7 +71,7 @@ class Engine:
         from arkiv.db.store import file_source_signature
 
         try:
-            source_signature: str | None = file_source_signature(file_path.stat())
+            source_signature: str | None = file_source_signature(file_path)
         except OSError:
             source_signature = None
 

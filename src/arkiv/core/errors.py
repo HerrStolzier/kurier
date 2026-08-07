@@ -12,6 +12,10 @@ _CONNECTION_MARKERS = (
     "connect call failed",
     "errno 61",
     "errno 111",
+    # EPERM-Wortlaut: httpx meldet einen blockierten Verbindungsversuch unter
+    # macOS als ConnectError('[Errno 1] Operation not permitted'). Gefahrlos,
+    # weil typisierte Datei-Fehler (PermissionError) VOR den Markern greifen.
+    "operation not permitted",
     "timed out",
     "timeout",
     "urlopen error",

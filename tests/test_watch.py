@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from watchdog.events import FileDeletedEvent, FileModifiedEvent, FileMovedEvent
 
+from arkiv.inlets import watch as watch_module
 from arkiv.inlets.watch import InboxHandler, Watcher, list_inbox_files
 
 
@@ -161,6 +162,33 @@ def test_write_during_callback_triggers_reprocessing(tmp_path: Path) -> None:
 
     assert processed == [target, target]  # zweite Runde auf dem vollen Inhalt
     assert handler._processed[str(target)] == _signature(target)
+
+
+def test_transient_stat_failure_does_not_mark_file_as_done(tmp_path: Path) -> None:
+    """Schlaegt stat() beim ersten Blick voruebergehend fehl, ist die Signatur
+    None — und None gleicht dem fehlenden _processed-Eintrag eines unbekannten
+    Pfades. Ohne Null-Pruefung waere die Datei damit stillschweigend
+    uebersprungen, ohne fuer einen Retry vorgemerkt zu sein
+    (Cross-Model-Review 2026-08-07, P2)."""
+    target = tmp_path / "kurz_blockiert.pdf"
+    target.write_text("inhalt", encoding="utf-8")
+
+    processed: list[Path] = []
+    handler = _handler(processed)
+
+    real_signature = watch_module._signature
+    calls = {"n": 0}
+
+    def flaky_signature(path: Path) -> tuple[int, int] | None:
+        calls["n"] += 1
+        if calls["n"] == 1:  # nur der allererste Blick scheitert
+            return None
+        return real_signature(path)
+
+    with patch.object(watch_module, "_signature", flaky_signature):
+        handler.process_path(target, use_cooldown=False)
+
+    assert processed == [target]
 
 
 def test_modified_event_for_unknown_file_is_processed(tmp_path: Path) -> None:

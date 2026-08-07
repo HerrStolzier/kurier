@@ -157,7 +157,14 @@ class InboxHandler(FileSystemEventHandler):
         with self._lock:
             if src_str in self._in_flight:
                 return False
-            if _signature(path) == self._processed.get(src_str):
+            current_signature = _signature(path)
+            # Nur vergleichen, wenn die Datei gerade lesbar ist: schlaegt stat()
+            # voruebergehend fehl, ist die Signatur None — und None gleicht dem
+            # fehlenden _processed-Eintrag eines noch unbekannten Pfades. Die
+            # Datei waere damit uebersprungen, ohne fuer einen Retry vorgemerkt
+            # zu sein, und bliebe bis zum naechsten Event oder Neustart liegen
+            # (Cross-Model-Review 2026-08-07, P2).
+            if current_signature is not None and current_signature == self._processed.get(src_str):
                 # Unveraendert seit der letzten Verarbeitung — z.B. eine Datei,
                 # die nach einer Webhook-only-Route im Eingang bleibt und
                 # spaeter noch einmal gemeldet wird (Startscan oder ein

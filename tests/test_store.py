@@ -1,5 +1,6 @@
 """Tests for the SQLite store."""
 
+import os
 from pathlib import Path
 
 import pytest
@@ -392,3 +393,69 @@ def test_was_routed_unchanged_never_matches_legacy_rows(store: Store) -> None:
     )
 
     assert store.was_routed_unchanged("/inbox/alt.txt", "1:1") is False
+
+
+def test_file_source_signature_differs_for_same_size_and_mtime(tmp_path: Path) -> None:
+    """Der Fingerabdruck muss zwei Dateien unterscheiden, die in Groesse UND
+    Zeitstempel uebereinstimmen — genau die Lage nach einem Backup-Restore oder
+    `cp -p`. Mit dem alten Groesse:mtime-Merkmal galt der neue Inhalt als
+    bereits verarbeitet und wurde dauerhaft uebersprungen
+    (Cross-Model-Review 2026-08-07, P1)."""
+    from arkiv.db.store import file_source_signature
+
+    original = tmp_path / "rechnung.txt"
+    original.write_text("Rechnung Nummer 1")
+    replacement = tmp_path / "rechnung_neu.txt"
+    replacement.write_text("Rechnung Nummer 2")  # gleiche Laenge, anderer Inhalt
+
+    stat_original = original.stat()
+    os.utime(replacement, ns=(stat_original.st_atime_ns, stat_original.st_mtime_ns))
+    stat_replacement = replacement.stat()
+
+    # Vorbedingung: fuer das alte Merkmal sind die beiden nicht zu unterscheiden.
+    assert (stat_original.st_size, stat_original.st_mtime_ns) == (
+        stat_replacement.st_size,
+        stat_replacement.st_mtime_ns,
+    )
+    assert file_source_signature(original) != file_source_signature(replacement)
+
+
+def test_was_routed_unchanged_ignores_old_format_signatures(store: Store) -> None:
+    """Zeilen im frueheren Groesse:mtime-Format duerfen nach der Umstellung NICHT
+    mehr matchen. Wuerden sie es, bliebe fuer genau diese Dateien die Luecke
+    offen, die der Fingerabdruck schliesst — gleiche Groesse, erhaltener
+    Zeitstempel, anderer Inhalt (Cross-Model-Review 2026-08-07, P1)."""
+    _record_routed(store, "/inbox/alt-format.txt", "routed", signature="100:200")
+    _record_routed(store, "/inbox/neu-format.txt", "routed", signature="sha256:abc:17")
+
+    assert store.was_routed_unchanged("/inbox/alt-format.txt", "sha256:xyz:17") is False
+    assert store.was_routed_unchanged("/inbox/neu-format.txt", "sha256:abc:17") is True
+    # Anderer Fingerabdruck -> die Datei wurde ersetzt.
+    assert store.was_routed_unchanged("/inbox/neu-format.txt", "sha256:xyz:17") is False
+    # Ohne Kennzeichen darf nichts matchen.
+    assert store.was_routed_unchanged("/inbox/neu-format.txt", "") is False
+
+
+def test_upsert_failure_fuehrt_alt_signatur_beim_sha_umbau_zusammen(tmp_path):
+    from arkiv.db.store import Store
+
+    store = Store(tmp_path / "t.db")
+    alt = store.upsert_failure("/inbox/kaputt.pdf", "123:456789", "alter Grund")
+    neu = store.upsert_failure("/inbox/kaputt.pdf", "sha256:abc:123", "neuer Grund")
+    assert alt == neu
+    failed = store.get_failed_items()
+    assert len(failed) == 1
+    assert failed[0]["failure_reason"] == "neuer Grund"
+    assert failed[0]["source_signature"] == "sha256:abc:123"
+
+
+def test_upsert_failure_bevorzugt_exakten_treffer_vor_alt_eintrag(tmp_path):
+    from arkiv.db.store import Store
+
+    store = Store(tmp_path / "t2.db")
+    sha = store.upsert_failure("/inbox/x", "sha256:a:1", "sha zuerst")
+    store.upsert_failure("/inbox/x", "1:2", "alt danach")
+    retry = store.upsert_failure("/inbox/x", "sha256:a:1", "sha erneut")
+    assert retry == sha
+    failed = store.get_failed_items()
+    assert len([f for f in failed if f["source_signature"] == "sha256:a:1"]) == 1

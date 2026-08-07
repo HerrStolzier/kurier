@@ -296,3 +296,33 @@ def test_review_correct_confirms_item_and_removes_it_from_queue(
     updated = store.recent(limit=1)[0]
     assert updated["category"] == "brief"
     assert updated["confidence"] == 1.0
+
+
+def test_failed_partial_leer(client: TestClient) -> None:
+    resp = client.get("/dashboard/partials/failed")
+    assert resp.status_code == 200
+    assert "alle Dokumente wurden verarbeitet" in resp.text
+
+
+def test_failed_partial_zeigt_fehlschlag_mit_grund(client: TestClient) -> None:
+    from arkiv.inlets.api import _get_context
+
+    _get_context().engine.store.upsert_failure(
+        "/tmp/kaputt.pdf",
+        "1:2",
+        "Die Datei konnte nicht gelesen werden. Prüfe, ob sie sich öffnen lässt.",
+    )
+    resp = client.get("/dashboard/partials/failed")
+    assert resp.status_code == 200
+    assert "Nicht geschafft" in resp.text
+    assert "kaputt.pdf" in resp.text
+    assert "nicht gelesen werden" in resp.text
+    assert "erneut in den Eingangsordner" in resp.text
+
+
+def test_dashboard_hat_failed_tab_und_footer(client: TestClient) -> None:
+    resp = client.get("/dashboard/")
+    assert "Nicht geschafft" in resp.text
+    assert "Für Fortgeschrittene" in resp.text
+    # Header ist aufgeraeumt: API-Doku nur noch im Footer
+    assert resp.text.count("API-Doku") == 1

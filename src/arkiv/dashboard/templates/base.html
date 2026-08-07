@@ -34,17 +34,6 @@
             >{{ version }}</span
           >
         </div>
-        <div class="flex items-center gap-4 text-sm text-gray-400">
-          <a href="/docs" target="_blank" class="hover:text-white transition"
-            >API-Doku</a
-          >
-          <a
-            href="https://github.com/HerrStolzier/kurier"
-            target="_blank"
-            class="hover:text-white transition"
-            >GitHub</a
-          >
-        </div>
       </div>
     </nav>
 
@@ -52,5 +41,21 @@
     <main class="max-w-6xl mx-auto px-6 py-8 space-y-8">
       {% block content %}{% endblock %}
     </main>
+
+    <!-- Footer: Links für Fortgeschrittene, bewusst dezent -->
+    <footer
+      class="max-w-6xl mx-auto px-6 py-8 text-xs text-gray-600 flex items-center gap-4"
+    >
+      <span>Für Fortgeschrittene:</span>
+      <a href="/docs" target="_blank" class="hover:text-white transition"
+        >API-Doku</a
+      >
+      <a
+        href="https://github.com/HerrStolzier/kurier"
+        target="_blank"
+        class="hover:text-white transition"
+        >GitHub</a
+      >
+    </footer>
   </body>
 </html>

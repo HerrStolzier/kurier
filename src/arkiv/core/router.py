@@ -110,7 +110,13 @@ def _unique_destination_path(dest_path: Path) -> Path:
 
 
 # Interne Routen-Namen, die Nutzern nie roh angezeigt werden dürfen
-_ROUTE_DISPLAY_NAMES = {"__review__": "Prüfliste"}
+_ROUTE_DISPLAY_NAMES = {
+    "__review__": "Prüfliste",
+    "__error__": "Fehlgeschlagen",
+    "__failed__": "Fehlgeschlagen",
+    "__pending__": "In Arbeit",
+    "__text__": "Texteingabe",
+}
 
 
 def display_route(name: str | None) -> str:

@@ -124,6 +124,11 @@
                         class="text-gray-400 hover:text-white pb-0.5 border-b-2 border-transparent hover:border-arkiv-800 transition">
                     Überprüfung
                 </button>
+                <button id="tab-failed-btn"
+                        onclick="switchTab('failed')"
+                        class="text-gray-400 hover:text-white pb-0.5 border-b-2 border-transparent hover:border-arkiv-800 transition">
+                    Nicht geschafft
+                </button>
             </div>
             <button id="tab-refresh-btn"
                     hx-get="/dashboard/partials/recent"
@@ -152,13 +157,23 @@
                 <div class="text-gray-500 text-sm">Lade Prüfliste...</div>
             </div>
         </div>
+
+        <!-- Failed tab (hidden by default) -->
+        <div id="tab-failed" class="hidden">
+            <div id="failed-items"
+                 hx-get="/dashboard/partials/failed"
+                 hx-trigger="revealed"
+                 hx-swap="innerHTML">
+                <div class="text-gray-500 text-sm">Lade Liste...</div>
+            </div>
+        </div>
     </div>
 </section>
 
 <!-- Tab switching JS -->
 <script>
     function switchTab(name) {
-        const tabs = ['recent', 'review'];
+        const tabs = ['recent', 'review', 'failed'];
         tabs.forEach(t => {
             const pane = document.getElementById('tab-' + t);
             const btn = document.getElementById('tab-' + t + '-btn');
@@ -170,6 +185,9 @@
                 if (t === 'review') {
                     refreshBtn.setAttribute('hx-get', '/dashboard/partials/review');
                     refreshBtn.setAttribute('hx-target', '#review-items');
+                } else if (t === 'failed') {
+                    refreshBtn.setAttribute('hx-get', '/dashboard/partials/failed');
+                    refreshBtn.setAttribute('hx-target', '#failed-items');
                 } else {
                     refreshBtn.setAttribute('hx-get', '/dashboard/partials/recent');
                     refreshBtn.setAttribute('hx-target', '#recent-items');

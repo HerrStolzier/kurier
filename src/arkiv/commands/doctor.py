@@ -191,7 +191,8 @@ def doctor(
                 warn(
                     "Ablage-Verarbeitung",
                     f"{pending} noch in Arbeit, {failed} fehlgeschlagen. "
-                    "Öffne das Dashboard oder prüfe die betroffenen Dateien.",
+                    "Details im Dashboard unter 'Nicht geschafft' "
+                    "(kurier serve, dann http://127.0.0.1:8790/dashboard/).",
                 )
             else:
                 ok("Ablage-Daten", f"{len(all_items)} Einträge, keine Fehler")

@@ -358,6 +358,53 @@ class Store:
         self._conn.commit()
         return item_id
 
+    def upsert_failure(
+        self,
+        original_path: str,
+        source_signature: str | None,
+        reason: str,
+    ) -> int:
+        """Fehlschlag festhalten, ohne bei Wiederholungen Duplikate anzuhäufen.
+
+        Existiert schon ein failed-Eintrag für dieselbe Datei im selben Stand,
+        wird nur der Grund und der Zeitstempel aufgefrischt.
+        """
+        row = self._conn.execute(
+            "SELECT id FROM items WHERE original_path = ? AND status = 'failed' "
+            "AND ifnull(source_signature, '') = ifnull(?, '') "
+            "ORDER BY id DESC LIMIT 1",
+            (original_path, source_signature),
+        ).fetchone()
+        if row is not None:
+            item_id = int(row["id"])
+            self._conn.execute(
+                "UPDATE items SET summary = ?, created_at = ? WHERE id = ?",
+                (reason, datetime.now(UTC).isoformat(), item_id),
+            )
+            self._conn.commit()
+            return item_id
+
+        return self.record_item(
+            original_path=original_path,
+            destination="",
+            category="",
+            confidence=0.0,
+            summary=reason,
+            tags=[],
+            language="",
+            route_name="__error__",
+            status="failed",
+            source_signature=source_signature,
+        )
+
+    def get_failed_items(self, limit: int = 20) -> list[dict[str, Any]]:
+        """Fehlgeschlagene Einträge, neueste zuerst."""
+        rows = self._conn.execute(
+            "SELECT * FROM items WHERE status = 'failed' ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     def update_routing_metadata(self, item_id: int, destination: str, route_name: str) -> None:
         """Update destination-related fields after routing has completed."""
         row = self._conn.execute(
@@ -498,9 +545,13 @@ class Store:
         return results
 
     def recent(self, limit: int = 20) -> list[dict[str, Any]]:
-        """Get most recently processed items."""
+        """Get most recently processed items.
+
+        Fehlgeschlagene Einträge haben ihre eigene Liste (get_failed_items) —
+        in "Zuletzt erledigt" wären sie als 'Erledigt' beschriftet und falsch.
+        """
         cursor = self._conn.execute(
-            "SELECT * FROM items ORDER BY created_at DESC LIMIT ?",
+            "SELECT * FROM items WHERE status != 'failed' ORDER BY created_at DESC LIMIT ?",
             (limit,),
         )
         return [dict(row) for row in cursor.fetchall()]
@@ -711,11 +762,16 @@ class Store:
     def stats(self) -> dict[str, Any]:
         """Get processing statistics."""
         total = self._conn.execute("SELECT COUNT(*) FROM items").fetchone()[0]
+        # Fehlgeschlagene Einträge haben keine Kategorie/Route — sie würden in
+        # den Statistiken als leeres Schildchen auftauchen.
         categories = self._conn.execute(
-            "SELECT category, COUNT(*) as count FROM items GROUP BY category ORDER BY count DESC"
+            "SELECT category, COUNT(*) as count FROM items "
+            "WHERE status != 'failed' AND category != '' "
+            "GROUP BY category ORDER BY count DESC"
         ).fetchall()
         routes = self._conn.execute(
             "SELECT route_name, COUNT(*) as count FROM items "
+            "WHERE status != 'failed' "
             "GROUP BY route_name ORDER BY count DESC"
         ).fetchall()
         webhook_rows = self._conn.execute(

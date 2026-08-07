@@ -161,3 +161,81 @@ def test_exploding_on_routed_hook_does_not_break_ingest(tmp_path: Path) -> None:
 
     assert result.success
     assert engine.store.get_recent(limit=1)[0]["status"] == "routed"
+
+
+def test_extraction_fehler_erzeugt_failed_eintrag(tmp_path: Path) -> None:
+    engine = _make_engine(tmp_path, {})
+    source = tmp_path / "kaputt.pdf"
+    source.write_text("kein echtes pdf")
+
+    with patch.object(engine, "_extract_content", side_effect=OSError("read error")):
+        result = engine.ingest_file(source)
+
+    assert not result.success
+    failed = engine.store.get_failed_items()
+    assert len(failed) == 1
+    assert failed[0]["status"] == "failed"
+    assert failed[0]["summary"]  # verständlicher Grund gespeichert
+
+
+def test_leere_datei_erzeugt_failed_eintrag(tmp_path: Path) -> None:
+    engine = _make_engine(tmp_path, {})
+    source = tmp_path / "leer.txt"
+    source.write_text("   ")
+
+    result = engine.ingest_file(source)
+
+    assert not result.success
+    failed = engine.store.get_failed_items()
+    assert len(failed) == 1
+    assert "leer" in failed[0]["summary"]
+
+
+def test_wiederholter_fehlschlag_haeuft_keine_duplikate_an(tmp_path: Path) -> None:
+    engine = _make_engine(tmp_path, {})
+    source = tmp_path / "leer.txt"
+    source.write_text("   ")
+
+    engine.ingest_file(source)
+    engine.ingest_file(source)
+    engine.ingest_file(source)
+
+    assert len(engine.store.get_failed_items()) == 1
+
+
+def test_klassifikations_fehler_erzeugt_failed_eintrag(tmp_path: Path) -> None:
+    engine = _make_engine(tmp_path, {})
+    source = tmp_path / "text.txt"
+    source.write_text("Inhalt vorhanden")
+
+    with patch.object(
+        engine.classifier, "classify", side_effect=ConnectionError("Connection refused")
+    ):
+        result = engine.ingest_file(source)
+
+    assert not result.success
+    failed = engine.store.get_failed_items()
+    assert len(failed) == 1
+    assert "Ollama" in failed[0]["summary"]
+
+
+def test_fehlschlag_blockiert_spaeteren_erfolg_nicht(tmp_path: Path) -> None:
+    routes = {
+        "archiv": {
+            "type": "folder",
+            "path": str(tmp_path / "archiv"),
+            "categories": ["rechnung"],
+            "confidence_threshold": 0.7,
+            "rename": False,
+        }
+    }
+    engine = _make_engine(tmp_path, routes)
+    source = tmp_path / "invoice.txt"
+    source.write_text("   ")
+    engine.ingest_file(source)  # leer -> failed
+
+    source.write_text("Rechnung 42")
+    result = _ingest(engine, source)
+
+    assert result.success
+    assert engine.store.get_recent(limit=1)[0]["status"] == "routed"

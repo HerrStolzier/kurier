@@ -17,7 +17,7 @@ from arkiv.application.beta import record_beta_event
 from arkiv.application.ingest import ingest_file as ingest_file_workflow
 from arkiv.application.review import confirm_review_item, correct_review_item, get_review_items
 from arkiv.application.search import search_items as search_items_workflow
-from arkiv.application.status import get_recent_items, get_status
+from arkiv.application.status import get_failed_items, get_recent_items, get_status
 from arkiv.core.router import display_route
 from arkiv.core.upload import validate_and_save
 
@@ -120,6 +120,19 @@ async def recent_partial() -> HTMLResponse:
         original_path = item.get("original_path") or ""
         item["source_name"] = Path(str(original_path).replace("text://", "")).name or original_path
     return _render("partials/recent.html", items=items)
+
+
+@router.get("/partials/failed", response_class=HTMLResponse)
+async def failed_partial() -> HTMLResponse:
+    """Fehlgeschlagene Dokumente (loaded via HTMX)."""
+    from arkiv.inlets.api import _get_context
+
+    ctx = _get_context()
+    items = get_failed_items(ctx, limit=30)
+    for item in items:
+        original_path = item.get("original_path") or ""
+        item["source_name"] = Path(str(original_path).replace("text://", "")).name or original_path
+    return _render("partials/failed.html", items=items)
 
 
 @router.post("/partials/upload", response_class=HTMLResponse)

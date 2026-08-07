@@ -10,6 +10,7 @@ from typing import Any
 from arkiv.core.classifier import Classification, Classifier
 from arkiv.core.config import ArkivConfig
 from arkiv.core.embeddings import EmbeddingEngine
+from arkiv.core.errors import friendly_error
 from arkiv.core.router import Router, RouteResult
 from arkiv.core.search_assistant import QueryAssist, QueryAssistant
 from arkiv.db.store import Store
@@ -74,17 +75,23 @@ class Engine:
         except OSError:
             source_signature = None
 
-        # Step 1: Extract content
-        content = self._extract_content(file_path)
+        # Step 1: Extract content. Fehler VOR dem ersten DB-Eintrag würden
+        # sonst keine Spur hinterlassen — eine defekte PDF wäre unsichtbar
+        # (Plan-Review 2026-08-07, P1). Deshalb: Fehlschlag als Eintrag
+        # festhalten, damit Dashboard und Doctor ihn zeigen können.
+        try:
+            content = self._extract_content(file_path)
+        except Exception as exc:
+            logger.warning("Extraction failed for %s: %s", file_path.name, exc)
+            return self._fail_without_item(file_path, source_signature, friendly_error(exc))
 
         # Skip empty files — LLM will hallucinate on empty input
         if not content.strip():
             logger.warning("Skipping empty file: %s", file_path.name)
-            return RouteResult(
-                route_name="__error__",
-                destination="",
-                success=False,
-                message=f"Empty file: {file_path.name}",
+            return self._fail_without_item(
+                file_path,
+                source_signature,
+                "Die Datei ist leer oder enthält keinen lesbaren Text.",
             )
 
         # Step 2: Let plugins pre-process (pluggy returns list of hook results)
@@ -94,7 +101,11 @@ class Engine:
             content = hook_results[-1]
 
         # Step 3: Classify
-        classification = self.classifier.classify(content)
+        try:
+            classification = self.classifier.classify(content)
+        except Exception as exc:
+            logger.warning("Classification failed for %s: %s", file_path.name, exc)
+            return self._fail_without_item(file_path, source_signature, friendly_error(exc))
         logger.info(
             "Classified %s → %s (%.2f)",
             file_path.name,
@@ -168,6 +179,24 @@ class Engine:
             logger.warning("Embedding failed for %s (non-fatal): %s", file_path.name, exc)
 
         return result
+
+    def _fail_without_item(
+        self,
+        file_path: Path,
+        source_signature: str | None,
+        reason: str,
+    ) -> RouteResult:
+        """Fehlschlag vor dem regulären DB-Eintrag festhalten und melden."""
+        try:
+            self.store.upsert_failure(str(file_path), source_signature, reason)
+        except Exception:
+            logger.exception("Konnte Fehlschlag nicht speichern: %s", file_path)
+        return RouteResult(
+            route_name="__error__",
+            destination="",
+            success=False,
+            message=reason,
+        )
 
     def ingest_text(self, text: str, name: str = "text_input") -> RouteResult:
         """Process raw text through the pipeline."""

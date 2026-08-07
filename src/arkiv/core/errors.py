@@ -34,7 +34,7 @@ def friendly_error(exc: BaseException) -> str:
         return "Kein Zugriff auf die Datei oder den Ordner. Prüfe die Berechtigungen."
     if isinstance(exc, FileNotFoundError):
         return "Die Datei oder der Ordner wurde nicht gefunden. Prüfe, ob der Pfad noch stimmt."
-    if isinstance(exc, OSError | UnicodeDecodeError):
+    if isinstance(exc, OSError | UnicodeDecodeError) or "failed to open" in lowered:
         return "Die Datei konnte nicht gelesen werden. Prüfe, ob sie sich öffnen lässt."
 
     first_line = text.strip().splitlines()[0][:80] if text.strip() else exc.__class__.__name__

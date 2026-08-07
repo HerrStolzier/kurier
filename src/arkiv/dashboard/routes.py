@@ -18,6 +18,7 @@ from arkiv.application.ingest import ingest_file as ingest_file_workflow
 from arkiv.application.review import confirm_review_item, correct_review_item, get_review_items
 from arkiv.application.search import search_items as search_items_workflow
 from arkiv.application.status import get_recent_items, get_status
+from arkiv.core.router import display_route
 from arkiv.core.upload import validate_and_save
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,7 @@ _template_dir = Path(__file__).parent / "templates"
 _static_dir = Path(__file__).parent / "static"
 _jinja = Environment(loader=FileSystemLoader(str(_template_dir)), autoescape=True)
 _jinja.filters["from_json"] = _from_json
+_jinja.filters["display_route"] = display_route
 
 router = APIRouter(prefix="/dashboard")
 

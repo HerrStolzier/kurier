@@ -20,11 +20,17 @@ def _count_visible_inbox_files(inbox_dir: Path) -> int:
     return len(list_inbox_files(inbox_dir))
 
 
+def _count_phrase(count: int, verb_singular: str, verb_plural: str) -> str:
+    noun = "Datei" if count == 1 else "Dateien"
+    verb = verb_singular if count == 1 else verb_plural
+    return f"{count} {noun} {verb}"
+
+
 def _doctor_directory_targets(cfg: ArkivConfig) -> list[tuple[str, Path]]:
     targets = [
         ("Datenbank-Ordner", cfg.database.path.parent),
-        ("Eingang", cfg.inbox_dir),
-        ("Prüfen", cfg.review_dir),
+        ("Eingang (Ordner)", cfg.inbox_dir),
+        ("Prüfen (Ordner)", cfg.review_dir),
     ]
     for name, route in cfg.routes.items():
         if route.path:
@@ -89,27 +95,29 @@ def doctor(
             if info.get("running"):
                 detail = "Kurier sortiert neue Dateien automatisch"
                 if backlog:
-                    noun = "Datei" if backlog == 1 else "Dateien"
-                    detail += f"; {backlog} {noun} warten gerade im Eingang"
+                    detail += f"; {_count_phrase(backlog, 'wartet', 'warten')} gerade im Eingang"
                 ok("Auto-Sortierung", detail)
             else:
                 detail = "Automatische Sortierung ist aus. Starte sie mit: kurier service on"
                 if backlog:
-                    noun = "Datei" if backlog == 1 else "Dateien"
-                    detail += f" ({backlog} {noun} warten im Eingang)"
+                    detail += f" ({_count_phrase(backlog, 'wartet', 'warten')} im Eingang)"
                 warn("Auto-Sortierung", detail)
 
             if backlog:
-                noun = "Datei" if backlog == 1 else "Dateien"
-                warn("Eingang", f"{backlog} {noun} liegen im Eingang")
+                warn(
+                    "Eingang (wartende Dateien)",
+                    f"{_count_phrase(backlog, 'liegt', 'liegen')} im Eingang",
+                )
             else:
-                ok("Eingang", "Leer")
+                ok("Eingang (wartende Dateien)", "Leer")
 
             if review_backlog:
-                noun = "Datei" if review_backlog == 1 else "Dateien"
-                warn("Prüfen", f"{review_backlog} {noun} warten auf Sichtung")
+                warn(
+                    "Prüfen (wartende Dateien)",
+                    f"{_count_phrase(review_backlog, 'wartet', 'warten')} auf Sichtung",
+                )
             else:
-                ok("Prüfen", "Leer")
+                ok("Prüfen (wartende Dateien)", "Leer")
         except Exception as e:
             warn("Auto-Sortierung", f"Status konnte nicht geprüft werden: {e}")
 

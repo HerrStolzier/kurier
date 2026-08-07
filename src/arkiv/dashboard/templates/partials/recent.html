@@ -30,7 +30,7 @@
                     </div>
                     <div>
                         <dt class="inline text-gray-400">Ablage:</dt>
-                        <dd class="inline">{{ item.destination_name or item.route_name }}</dd>
+                        <dd class="inline">{{ item.destination_name or (item.route_name | display_route) }}</dd>
                     </div>
                 </dl>
                 <p class="mt-3 text-xs text-gray-500">
@@ -39,7 +39,7 @@
             </div>
             <div class="text-xs text-gray-500 lg:text-right">
                 <div>{{ item.created_at[:10] }}</div>
-                <div class="mt-1">{{ item.route_name }}</div>
+                <div class="mt-1">{{ item.route_name | display_route }}</div>
             </div>
         </div>
     </article>

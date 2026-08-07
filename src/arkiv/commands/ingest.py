@@ -8,9 +8,11 @@ from pathlib import Path
 
 import typer
 
+from arkiv.application.ingest import already_routed_unchanged
 from arkiv.application.ingest import ingest_file as ingest_file_workflow
 from arkiv.application.ingest import ingest_text as ingest_text_workflow
 from arkiv.commands.common import console, get_context
+from arkiv.core.router import display_route
 
 
 def add(
@@ -41,7 +43,9 @@ def add(
         item = latest[0] if latest else {}
         console.print("[green]✓ Erledigt.[/green] Kurier hat das Dokument verarbeitet.")
         console.print(f"[dim]Quelle:[/dim] {source_label}")
-        console.print(f"[dim]Erkannt als:[/dim] {item.get('category', result.route_name)}")
+        console.print(
+            f"[dim]Erkannt als:[/dim] {item.get('category') or display_route(result.route_name)}"
+        )
         if "confidence" in item:
             console.print(f"[dim]Sicherheit:[/dim] {float(item['confidence']) * 100:.0f}%")
         title = item.get("display_title") or item.get("destination_name")
@@ -60,6 +64,15 @@ def add(
 def watch(
     config: Path | None = typer.Option(None, "--config", "-c"),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
+    # Der Hintergrunddienst (service.py) uebergibt --drain-existing explizit.
+    # Default ist trotzdem an: auch ein manuell gestarteter Watcher soll den
+    # liegengebliebenen Bestand aufarbeiten; doppelte Verarbeitung verhindert
+    # das persistierte Datei-Kennzeichen.
+    drain_existing: bool = typer.Option(
+        True,
+        "--drain-existing/--no-drain-existing",
+        help="Beim Start bereits vorhandene Dateien im Eingang aufarbeiten",
+    ),
 ) -> None:
     """Eingangs-Ordner beobachten und neue Dateien automatisch verarbeiten."""
     if verbose:
@@ -83,14 +96,18 @@ def watch(
 
             latest = engine.store.get_recent(limit=1)
             item = latest[0] if latest else {}
-            category = item.get("category", result.route_name)
-            destination = item.get("destination_name") or result.route_name
+            category = item.get("category") or display_route(result.route_name)
+            destination = item.get("destination_name") or display_route(result.route_name)
             notify("Kurier", f"{p.name} erledigt: {category} → {destination}")
 
     watcher = Watcher(
         cfg.inbox_dir,
         cast_callback(_ingest_and_discard),
         llm_provider=cfg.llm.provider,
+        drain_existing=drain_existing,
+        # Webhook-only-Dateien bleiben im Eingang liegen — der Startscan darf
+        # sie nach einem Neustart nicht erneut verarbeiten.
+        drain_skip=lambda p: already_routed_unchanged(engine.store, p),
     )
     watcher.start()
 

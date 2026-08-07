@@ -47,7 +47,7 @@
             </div>
             <div class="text-right flex-shrink-0">
                 <div class="text-xs text-gray-500">{{ item.created_at[:10] }}</div>
-                <div class="text-xs text-gray-600 mt-0.5">{{ item.route_name }}</div>
+                <div class="text-xs text-gray-600 mt-0.5">{{ item.route_name | display_route }}</div>
             </div>
         </div>
     </div>

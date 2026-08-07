@@ -109,6 +109,17 @@ def _unique_destination_path(dest_path: Path) -> Path:
     return dest_path
 
 
+# Interne Routen-Namen, die Nutzern nie roh angezeigt werden dürfen
+_ROUTE_DISPLAY_NAMES = {"__review__": "Prüfliste"}
+
+
+def display_route(name: str | None) -> str:
+    """Menschlicher Anzeigename für einen (ggf. internen) Routen-Namen."""
+    if not name:
+        return ""
+    return _ROUTE_DISPLAY_NAMES.get(name, name)
+
+
 @dataclass
 class RouteResult:
     """Result of routing an item."""

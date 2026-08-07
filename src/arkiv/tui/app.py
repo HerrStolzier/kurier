@@ -27,6 +27,8 @@ from textual.widgets import (
     Static,
 )
 
+from arkiv.core.router import display_route
+
 LOGO = """
 ██╗  ██╗██╗   ██╗██████╗ ██╗███████╗██████╗
 ██║ ██╔╝██║   ██║██╔══██╗██║██╔════╝██╔══██╗
@@ -106,7 +108,7 @@ class DetailModal(ModalScreen[None]):
         field_labels = {
             "id": "ID",
             "category": "Kategorie",
-            "confidence": "Confidence",
+            "confidence": "Sicherheit",
             "summary": "Zusammenfassung",
             "original_path": "Originalpfad",
             "destination": "Ziel",
@@ -121,6 +123,8 @@ class DetailModal(ModalScreen[None]):
             if value is not None and value != "":
                 if key == "confidence" and isinstance(value, float):
                     value = f"{value:.2f}"
+                if key == "route_name":
+                    value = display_route(str(value))
                 lines.append(f"[bold #f5a623]{label}:[/bold #f5a623] {value}")
 
         content = "\n".join(lines) if lines else "Keine Details verfügbar."
@@ -239,7 +243,7 @@ class SearchScreen(Screen[None]):
         table = self.query_one("#search-results", DataTable)
         table.add_columns(
             "Kategorie",
-            "Confidence",
+            "Sicherheit",
             "Zusammenfassung",
             "Pfad",
             "Datum",
@@ -402,7 +406,7 @@ class RecentScreen(Screen[None]):
 
     def on_mount(self) -> None:
         table = self.query_one("#recent-table", DataTable)
-        table.add_columns("#", "Kategorie", "Confidence", "Pfad", "Status", "Datum")
+        table.add_columns("#", "Kategorie", "Sicherheit", "Pfad", "Status", "Datum")
         table.display = False
         self._load_items()
 
@@ -722,14 +726,22 @@ class WatchScreen(Screen[None]):
     def _run_watcher(self) -> None:
         """Watcher im Hintergrund-Thread starten (blockierend)."""
         try:
+            from arkiv.application.ingest import already_routed_unchanged
+            from arkiv.core.engine import Engine
             from arkiv.inlets.watch import Watcher
 
             inbox_dir = self._get_inbox_dir()
+            cfg = self._config  # type: ignore[assignment]
+            # Eigener Store-Handle fuer die Skip-Pruefung des Startscans:
+            # schon einsortierte, unveraenderte Dateien (Webhook-only-Routen)
+            # duerfen beim Neustart nicht erneut verarbeitet werden.
+            store = Engine(cfg).store
             self._watcher = Watcher(
                 inbox_dir=inbox_dir,
                 callback=self._watch_callback,
                 max_concurrent=3,
                 drain_existing=True,
+                drain_skip=lambda p: already_routed_unchanged(store, p),
             )
             self._watcher.start()
         except Exception as exc:
@@ -766,7 +778,7 @@ class WatchScreen(Screen[None]):
 
     def _log_success(self, filename: str, result: Any) -> None:
         log = self.query_one("#watch-log", RichLog)
-        category = getattr(result, "route_name", "?")
+        category = display_route(getattr(result, "route_name", "?")) or "?"
         destination = getattr(result, "destination", "")
         # Confidence aus dem Result-Objekt ist nicht direkt vorhanden — Route-Name reicht
         dest_short = Path(destination).parent.name if destination else "?"
@@ -1097,7 +1109,7 @@ SEVERITY_COLORS: dict[str, str] = {
 ISSUE_TYPE_LABELS: dict[str, str] = {
     "duplicate": "Duplikat",
     "misclassified": "Falsch klassifiziert",
-    "low_confidence": "Niedrige Confidence",
+    "low_confidence": "Niedrige Sicherheit",
     "orphaned": "Verwaist",
     "missing": "Fehlt",
 }
@@ -1290,7 +1302,7 @@ class AuditScreen(Screen[None]):
 # SetupWizardScreen
 # ---------------------------------------------------------------------------
 
-# Kopiert aus setup_wizard.py — Modell-Hinweise für die TUI-Auswahl
+# Modell-Hinweise für die TUI-Auswahl
 _WIZARD_MODEL_HINTS: dict[str, tuple[str, bool]] = {
     "qwen2.5:7b": ("Schnell & genau — empfohlen für Kurier", True),
     "qwen2.5:3b": ("Leichtgewicht, gut für ältere Rechner", False),
@@ -1503,7 +1515,7 @@ class SetupWizardScreen(Screen[None]):
                 "Installiere Ollama von [bold]https://ollama.com[/bold]  "
                 "[dim]— oder wähle schon jetzt ein Modell aus:[/dim]"
             )
-            # Empfehlungsliste aus setup_wizard.py anbieten
+            # Standard-Empfehlungsliste anbieten
             defaults = ["qwen2.5:7b", "qwen2.5:3b", "qwen2.5:1.5b", "mistral"]
             for model in defaults:
                 desc, rec = _wizard_model_hint(model)

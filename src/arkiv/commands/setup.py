@@ -8,6 +8,7 @@ from pathlib import Path
 import typer
 
 from arkiv.commands.common import DEFAULT_CONFIG_FILE, ArkivConfig, console
+from arkiv.core.setup_texts import RECOMMENDED_MODEL
 
 
 def _pick_folder(default: str) -> str:
@@ -118,7 +119,7 @@ def init(
     default_config = (
         "# Kurier Einstellungen\n"
         "# https://github.com/HerrStolzier/kurier\n\n"
-        '[llm]\nprovider = "ollama"\nmodel = "qwen2.5:7b"\n'
+        f'[llm]\nprovider = "ollama"\nmodel = "{RECOMMENDED_MODEL}"\n'
         'base_url = "http://localhost:11434"\ntemperature = 0.1\n\n'
         '[embeddings]\nmodel = "BAAI/bge-small-en-v1.5"\n\n'
         '[database]\npath = "~/.local/share/kurier/kurier.db"\n\n'
@@ -206,7 +207,7 @@ def _post_init_checks(config_path: Path) -> None:
         else:
             console.print(
                 "[yellow]Noch kein KI-Modell heruntergeladen.[/yellow] "
-                "Empfehlung: ollama pull qwen2.5:7b"
+                f"Empfehlung: ollama pull {RECOMMENDED_MODEL}"
             )
 
         console.print("\n[dim]Teste kurz, ob Kurier ein Beispieldokument versteht...[/dim]")

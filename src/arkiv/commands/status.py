@@ -73,8 +73,10 @@ def status(
         console.print("[dim]Integrationen:[/dim] [green]keine offenen Webhooks[/green]\n")
 
     console.print(
-        "[dim]Nächster Schritt:[/dim] Dokumente in den Eingang legen, "
-        'im Dashboard prüfen oder mit `kurier search "..." --memory` suchen.\n'
+        "[dim]Nächster Schritt:[/dim] Dokumente in den Eingang legen. "
+        "Ansehen und suchen kannst du alles im Dashboard: "
+        "[bold]kurier serve[/bold] starten, dann "
+        "http://127.0.0.1:8790/dashboard/ im Browser öffnen.\n"
     )
 
     if s["categories"]:

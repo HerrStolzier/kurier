@@ -28,6 +28,8 @@ from textual.widgets import (
 )
 
 from arkiv.core.router import display_route
+from arkiv.core.setup_texts import RECOMMENDED_MODEL as _WIZARD_RECOMMENDED
+from arkiv.core.setup_texts import model_hint as _wizard_model_hint
 
 LOGO = """
 ██╗  ██╗██╗   ██╗██████╗ ██╗███████╗██████╗
@@ -1305,31 +1307,6 @@ class AuditScreen(Screen[None]):
 # SetupWizardScreen
 # ---------------------------------------------------------------------------
 
-# Modell-Hinweise für die TUI-Auswahl
-_WIZARD_MODEL_HINTS: dict[str, tuple[str, bool]] = {
-    "qwen2.5:7b": ("Schnell & genau — empfohlen für Kurier", True),
-    "qwen2.5:3b": ("Leichtgewicht, gut für ältere Rechner", False),
-    "qwen2.5:1.5b": ("Minimal, kann ungenau klassifizieren", False),
-    "qwen3.5": ("Langsam (Denkpause ~100s pro Datei)", False),
-    "llama3.1:8b": ("Solide Alternative zu Qwen", False),
-    "llama3.1": ("Solide Alternative zu Qwen", False),
-    "mistral": ("Gut für englische Texte", False),
-    "gemma": ("Google-Modell, mittlere Qualität", False),
-    "phi": ("Microsoft, klein aber fähig", False),
-    "nomic-embed": ("Nur für Embeddings — nicht geeignet", False),
-    "minimax": ("Cloud-Modell, nicht lokal", False),
-}
-
-_WIZARD_RECOMMENDED = "qwen2.5:7b"
-
-
-def _wizard_model_hint(model_name: str) -> tuple[str, bool]:
-    """Gibt Beschreibung und Empfehlung für ein Modell zurück."""
-    for prefix, (desc, rec) in _WIZARD_MODEL_HINTS.items():
-        if model_name.startswith(prefix):
-            return desc, rec
-    return "", False
-
 
 class SetupWizardScreen(Screen[None]):
     """Erster-Start-Wizard: Eingangs-Ordner, KI-Modell, Fertig."""
@@ -1346,6 +1323,7 @@ class SetupWizardScreen(Screen[None]):
         self._step: int = 1  # 1, 2 oder 3
         self._inbox_path: Path = Path.home() / "Documents" / "Kurier" / "Eingang"
         self._selected_model: str = _WIZARD_RECOMMENDED
+        self._show_model_list = False
         self._ollama_models: list[str] = []
         self._ollama_running: bool = False
         self._ollama_checked: bool = False
@@ -1364,6 +1342,7 @@ class SetupWizardScreen(Screen[None]):
         yield ListView(id="wizard-model-list")
         yield Static("", id="wizard-ollama-status")
         yield Button("Erneut prüfen", id="wizard-recheck-btn")
+        yield Button("Anderes KI-Modell wählen (für Fortgeschrittene)", id="wizard-advanced-btn")
         # Schritt 3: Zusammenfassung
         yield Static("", id="wizard-summary")
         # Fallback: manuelles Eingabefeld
@@ -1387,6 +1366,7 @@ class SetupWizardScreen(Screen[None]):
 
         pick_btn = self.query_one("#wizard-pick-folder-btn", Button)
         recheck_btn = self.query_one("#wizard-recheck-btn", Button)
+        advanced_btn = self.query_one("#wizard-advanced-btn", Button)
         path_display = self.query_one("#wizard-path-display", Static)
         model_list = self.query_one("#wizard-model-list", ListView)
         ollama_status = self.query_one("#wizard-ollama-status", Static)
@@ -1401,6 +1381,7 @@ class SetupWizardScreen(Screen[None]):
         # Alles ausblenden
         pick_btn.display = False
         recheck_btn.display = False
+        advanced_btn.display = False
         path_display.display = False
         model_list.display = False
         ollama_status.display = False
@@ -1426,13 +1407,14 @@ class SetupWizardScreen(Screen[None]):
 
         elif self._step == 2:
             content.update(
-                "[bold #f5a623]KI-Modell wählen[/bold #f5a623]\n\n"
-                "Dieses Modell hilft Kurier, Dokumente zu verstehen und zu sortieren.\n"
-                "[#888888]Größere Modelle sind oft genauer, brauchen aber mehr "
-                "Arbeitsspeicher.[/#888888]\n"
+                "[bold #f5a623]KI-Modell[/bold #f5a623]\n\n"
+                f"Kurier nutzt das empfohlene Modell [bold]{_WIZARD_RECOMMENDED}[/bold]. "
+                "Es hilft Kurier, Dokumente zu verstehen und zu sortieren.\n"
+                "[#888888]Du musst hier nichts entscheiden — Weiter reicht.[/#888888]\n"
             )
             ollama_status.display = True
-            model_list.display = True
+            model_list.display = self._show_model_list
+            advanced_btn.display = not self._show_model_list
             if self._ollama_checked:
                 self._populate_model_list()
                 recheck_btn.display = not self._ollama_running or not self._ollama_models
@@ -1593,6 +1575,9 @@ class SetupWizardScreen(Screen[None]):
             threading.Thread(target=self._pick_folder, daemon=True).start()
         elif event.button.id == "wizard-recheck-btn":
             self._recheck_ollama()
+        elif event.button.id == "wizard-advanced-btn":
+            self._show_model_list = True
+            self._render_step()
 
     def _pick_folder(self) -> None:
         """Native OS-Ordner-Auswahl (nicht-blockierend im Thread)."""

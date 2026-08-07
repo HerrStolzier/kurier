@@ -15,6 +15,13 @@ console = Console()
 
 def get_config(config: Path | None = None) -> ArkivConfig:
     """Load configuration and ensure required directories exist."""
+    config_path = config or DEFAULT_CONFIG_FILE
+    if not config_path.exists():
+        console.print(
+            "[yellow]Kurier ist noch nicht eingerichtet[/yellow] — starte mit "
+            "[bold]kurier init[/bold] (oder mach einfach mit den "
+            "Standard-Einstellungen weiter)."
+        )
     cfg = ArkivConfig.load(config)
     cfg.ensure_dirs()
     return cfg

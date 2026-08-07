@@ -346,3 +346,49 @@ def test_reconcile_leaves_folder_failed_item_untouched(tmp_path):
     store.reconcile_item_after_webhook_delivery(item_id)
 
     assert store.get_recent(limit=1)[0]["status"] == "failed"
+
+
+def _record_routed(store: Store, path: str, status: str, signature: str | None = None) -> None:
+    store.record_item(
+        original_path=path,
+        destination="",
+        category="notiz",
+        confidence=0.9,
+        summary="",
+        tags=[],
+        language="de",
+        route_name="webhook",
+        status=status,
+        source_signature=signature,
+    )
+
+
+def test_was_routed_unchanged_matches_on_source_signature(store: Store) -> None:
+    """Massgeblich ist das persistierte Datei-Kennzeichen. Ein Zeitvergleich
+    stattdessen wuerde eine Ersetzung mit aelterem Zeitstempel (cp -p, rsync,
+    Backup-Restore) fuer immer ueberspringen
+    (Cross-Model-Review 2026-08-06, P1)."""
+    _record_routed(store, "/inbox/bleibt.txt", "routed", signature="100:200")
+    _record_routed(store, "/inbox/kaputt.txt", "failed", signature="100:200")
+
+    assert store.was_routed_unchanged("/inbox/bleibt.txt", "100:200") is True
+    # Gleicher Pfad, aber ANDERE Datei (Ersetzung, egal mit welchem
+    # Zeitstempel): Kennzeichen passt nicht -> muss verarbeitet werden.
+    assert store.was_routed_unchanged("/inbox/bleibt.txt", "999:111") is False
+    # failed soll erneut versucht werden.
+    assert store.was_routed_unchanged("/inbox/kaputt.txt", "100:200") is False
+    assert store.was_routed_unchanged("/inbox/unbekannt.txt", "100:200") is False
+
+
+def test_was_routed_unchanged_never_matches_legacy_rows(store: Store) -> None:
+    """Alt-Zeilen aus der Zeit vor der Kennzeichen-Spalte matchen bewusst NIE:
+    einmaliges Neu-Verarbeiten nach dem Upgrade ist verkraftbar, ein
+    Zeit-Fallback waere bei Ersetzungen mit aelterem Zeitstempel dauerhaft
+    verlustbehaftet (Cross-Model-Review 2026-08-06, P1)."""
+    store._conn.execute(
+        "INSERT INTO items (original_path, category, confidence, status, created_at)"
+        " VALUES (?, ?, ?, ?, ?)",
+        ("/inbox/alt.txt", "notiz", 0.9, "routed", "2026-01-01T12:00:00.400000+00:00"),
+    )
+
+    assert store.was_routed_unchanged("/inbox/alt.txt", "1:1") is False

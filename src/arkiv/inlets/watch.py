@@ -6,7 +6,7 @@ import logging
 import time
 from collections.abc import Callable
 from pathlib import Path
-from threading import Event, Semaphore
+from threading import Event, Lock, Semaphore
 
 from watchdog.events import (
     DirCreatedEvent,
@@ -120,6 +120,19 @@ class InboxHandler(FileSystemEventHandler):
         # durch aufgestaute Events nicht erneut verarbeitet werden — eine Datei,
         # an der wirklich weitergeschrieben wurde, dagegen schon.
         self._processed: dict[str, tuple[int, int]] = {}
+        # Pfade, die gerade verarbeitet werden. Startscan (Main-Thread) und
+        # Event-Dispatch (Observer-Thread) koennen dieselbe Datei gleichzeitig
+        # anfassen — das Lock macht Pruefen-und-Vormerken atomar
+        # (Cross-Model-Review 2026-08-06, P1).
+        self._in_flight: set[str] = set()
+        self._lock = Lock()
+        # Callbacks laufen strikt nacheinander. Vor dem Startscan-Umbau war das
+        # implizit so (ein einziger Event-Dispatch-Thread); seit der Scan
+        # parallel zum Beobachter laeuft, koennten sonst zwei Callbacks
+        # gleichzeitig auf demselben Engine/SQLite-Handle arbeiten — und z.B.
+        # die Notification des einen die Daten des anderen anzeigen
+        # (Cross-Model-Review 2026-08-06, P2).
+        self._callback_lock = Lock()
         self._semaphore = semaphore
         self._stop_event = stop_event
         self._stability_interval = stability_interval
@@ -132,64 +145,107 @@ class InboxHandler(FileSystemEventHandler):
         *,
         use_cooldown: bool = True,
         source_label: str = "New file detected",
-    ) -> None:
-        """Process one inbox file with the same safeguards as live events."""
+    ) -> bool:
+        """Process one inbox file with the same safeguards as live events.
+
+        True, wenn die Datei wirklich verarbeitet wurde."""
         if _should_skip_path(path):
-            return
+            return False
 
         src_str = str(path)
 
-        if use_cooldown:
-            now = time.time()
-            last_seen = self._seen.get(src_str, 0)
-            if now - last_seen < self.cooldown:
-                return
-            self._seen[src_str] = now
-
-        # Nicht auf halbfertigen Dateien arbeiten: warten, bis die Groesse
-        # stabil ist. Bei Timeout Cooldown-Eintrag freigeben, damit ein
-        # spaeteres Modify-Event einen frischen Versuch bekommt.
-        if not _wait_until_stable(
-            path,
-            interval=self._stability_interval,
-            stable_checks=self._stability_checks,
-            timeout=self._stability_timeout,
-            stop_event=self._stop_event,
-        ):
-            logger.warning("File not stable yet, skipping for now: %s", path.name)
-            self._seen.pop(src_str, None)
-            if path.exists():
-                self._retry_pending.add(src_str)
-            return
-
-        self._retry_pending.discard(src_str)
-        # Vor dem Callback merken: Folder-Routen verschieben die Datei weg, danach
-        # gibt es nichts mehr zu messen.
-        current = _signature(path)
-        if current is not None:
-            self._processed[src_str] = current
-
-        logger.info("%s: %s", source_label, path.name)
-
-        if self._semaphore is not None:
-            logger.debug("Waiting for processing slot...")
-            self._semaphore.acquire()
+        with self._lock:
+            if src_str in self._in_flight:
+                return False
+            if _signature(path) == self._processed.get(src_str):
+                # Unveraendert seit der letzten Verarbeitung — z.B. eine Datei,
+                # die nach einer Webhook-only-Route im Eingang bleibt und
+                # spaeter noch einmal gemeldet wird (Startscan oder ein
+                # verspaetetes Created-Event nach Ablauf des Cooldowns).
+                return False
+            if use_cooldown:
+                now = time.time()
+                last_seen = self._seen.get(src_str, 0)
+                if now - last_seen < self.cooldown:
+                    return False
+                self._seen[src_str] = now
+            self._in_flight.add(src_str)
 
         try:
-            self.callback(path)
-        except Exception as e:
-            logger.error("Error processing %s: %s", path.name, e)
+            while True:
+                # Nicht auf halbfertigen Dateien arbeiten: warten, bis die
+                # Groesse stabil ist. Bei Timeout Cooldown-Eintrag freigeben,
+                # damit ein spaeteres Modify-Event einen frischen Versuch
+                # bekommt.
+                if not _wait_until_stable(
+                    path,
+                    interval=self._stability_interval,
+                    stable_checks=self._stability_checks,
+                    timeout=self._stability_timeout,
+                    stop_event=self._stop_event,
+                ):
+                    logger.warning("File not stable yet, skipping for now: %s", path.name)
+                    self._seen.pop(src_str, None)
+                    if path.exists():
+                        self._retry_pending.add(src_str)
+                    return False
+
+                self._retry_pending.discard(src_str)
+                logger.info("%s: %s", source_label, path.name)
+
+                if self._semaphore is not None:
+                    logger.debug("Waiting for processing slot...")
+                    self._semaphore.acquire()
+
+                try:
+                    with self._callback_lock:
+                        # Baseline erst NACH dem Lock festhalten: waehrend des
+                        # Wartens kann die Datei weitergeschrieben worden sein,
+                        # und der Callback liest den Stand von jetzt. Mit einer
+                        # aelteren Baseline wuerde der Nachfass-Vergleich unten
+                        # denselben Inhalt gleich noch einmal verarbeiten
+                        # (Cross-Model-Review 2026-08-06, P2). Und vor dem
+                        # Callback, nicht danach: Folder-Routen verschieben die
+                        # Datei weg, danach gibt es nichts mehr zu messen.
+                        current = _signature(path)
+                        if current is not None:
+                            self._processed[src_str] = current
+                        self.callback(path)
+                except Exception as e:
+                    logger.error("Error processing %s: %s", path.name, e)
+                finally:
+                    if self._semaphore is not None:
+                        self._semaphore.release()
+
+                # Endvergleich und Freigabe der In-Flight-Sperre atomar: laege
+                # dazwischen ein Fenster, wuerde ein genau dort eintreffendes
+                # Modify-Event verworfen (Pfad noch "busy"), ohne dass der
+                # Vergleich den neuen Stand noch saehe
+                # (Cross-Model-Review 2026-08-06, P1).
+                with self._lock:
+                    if not path.exists():
+                        # Folder-Routen verschieben die Datei weg. Fuer einen
+                        # Pfad, den es nicht mehr gibt, kann es keinen
+                        # Nachschreibe-Fall geben — und ein Move-/Delete-Event,
+                        # das spaeter aufraeumen wuerde, behandelt dieser
+                        # Handler nicht. Ohne das waechst `_processed` bei einem
+                        # lang laufenden Watcher um jede jemals einsortierte
+                        # Datei (Cross-Model-Review 2026-08-04, P2).
+                        self._processed.pop(src_str, None)
+                        self._in_flight.discard(src_str)
+                        return True
+                    if _signature(path) == self._processed.get(src_str):
+                        self._in_flight.discard(src_str)
+                        return True
+                # Waehrend der Verarbeitung wurde weitergeschrieben. Die
+                # Modify-Events dazu hat die In-Flight-Sperre verworfen, ein
+                # weiteres Event kommt womoeglich nie — deshalb hier selbst
+                # nachfassen statt auf eines zu warten
+                # (Cross-Model-Review 2026-08-06, P1).
+                source_label = "Changed during processing, reprocessing"
         finally:
-            if self._semaphore is not None:
-                self._semaphore.release()
-            # Folder-Routen verschieben die Datei weg. Fuer einen Pfad, den es
-            # nicht mehr gibt, kann es keinen Nachschreibe-Fall geben — und ein
-            # Move-/Delete-Event, das spaeter aufraeumen wuerde, behandelt dieser
-            # Handler nicht. Ohne das waechst `_processed` bei einem lang
-            # laufenden Watcher um jede jemals einsortierte Datei
-            # (Cross-Model-Review 2026-08-04, P2).
-            if not path.exists():
-                self._processed.pop(src_str, None)
+            with self._lock:
+                self._in_flight.discard(src_str)
 
     def on_created(self, event: DirCreatedEvent | FileCreatedEvent) -> None:
         if event.is_directory:
@@ -218,7 +274,14 @@ class InboxHandler(FileSystemEventHandler):
 
         last = self._processed.get(src_str)
         if last is None:
-            # Nie verarbeitet — dafuer ist on_created bzw. der Startscan da.
+            # Unbekannter Pfad — eigentlich der Fall fuer on_created. Aber
+            # macOS/fsevents liefert fuer geklonte Dateien (Finder-Kopie, cp
+            # auf APFS) NUR Modified-Events, nie Created — live beobachtet am
+            # 2026-08-06 (is_cloned-Flag im fsevents-Log). Wer hier auf
+            # on_created wartet, verpasst solche Dateien bis zum naechsten
+            # Neustart. process_path dedupliziert selbst (In-Flight-Sperre,
+            # Signaturvergleich, Cooldown), doppelte Events sind unschaedlich.
+            self.process_path(path)
             return
         current = _signature(path)
         if current is None:
@@ -271,6 +334,7 @@ class Watcher:
         max_concurrent: int = 3,
         llm_provider: str = "ollama",
         drain_existing: bool = False,
+        drain_skip: Callable[[Path], bool] | None = None,
     ) -> None:
         self.inbox_dir = inbox_dir
         self.observer = Observer()
@@ -281,6 +345,13 @@ class Watcher:
         )
         self._llm_provider = llm_provider
         self._drain_existing = drain_existing
+        # Persistente Skip-Pruefung fuer den Startscan: Dateien, die schon
+        # frueher erfolgreich einsortiert wurden und seitdem unveraendert sind
+        # (z.B. Webhook-only-Routen lassen die Datei im Eingang liegen), duerfen
+        # nach einem Neustart nicht erneut verarbeitet werden — der In-Memory-
+        # Merker des Handlers ueberlebt den Neustart nicht
+        # (Cross-Model-Review 2026-08-06, P1).
+        self._drain_skip = drain_skip
 
     def _drain_existing_files(self) -> int:
         """Process files that already exist before the watcher starts."""
@@ -289,13 +360,21 @@ class Watcher:
             return 0
 
         logger.info(
-            "Processing %d existing file(s) in %s before watch starts.",
+            "Checking %d existing file(s) in %s.",
             len(existing_files),
             self.inbox_dir,
         )
+        drained = 0
         for path in existing_files:
-            self.handler.process_path(path, use_cooldown=False, source_label="Existing file found")
-        return len(existing_files)
+            if self._drain_skip is not None and self._drain_skip(path):
+                logger.debug("Already routed and unchanged, leaving alone: %s", path.name)
+                continue
+            # Doppelte Verarbeitung gegen Live-Events (der Beobachter laeuft
+            # beim Drain bereits) verhindert process_path selbst: In-Flight-
+            # Sperre plus Signaturvergleich.
+            if self.handler.process_path(path, source_label="Existing file found"):
+                drained += 1
+        return drained
 
     def _wait_for_ollama(self) -> None:
         """Poll Ollama until reachable. Blocks with 30s intervals."""
@@ -316,15 +395,23 @@ class Watcher:
         if self._llm_provider == "ollama":
             self._wait_for_ollama()
         self.inbox_dir.mkdir(parents=True, exist_ok=True)
-        if self._drain_existing:
-            drained = self._drain_existing_files()
-            if drained:
-                logger.info("Existing inbox drained: %d file(s) processed.", drained)
+        # Erst beobachten, DANN den Backlog aufarbeiten. Umgekehrt fiele jede
+        # Datei, die zwischen Snapshot und observer.start() ankommt, in eine
+        # Luecke: sie ist weder im Backlog noch loest sie ein Event aus
+        # (Cross-Model-Review 2026-08-06, P1).
         self.observer.schedule(self.handler, str(self.inbox_dir), recursive=False)
         self.observer.start()
-        logger.info("Watching %s for new files...", self.inbox_dir)
-
+        # Ab hier laeuft der Beobachter — ALLES Weitere gehoert in den
+        # try-Block, damit Strg+C oder ein Fehler waehrend des Startscans den
+        # Observer-Thread nicht verwaist zuruecklaesst
+        # (Cross-Model-Review 2026-08-06, P2).
         try:
+            if self._drain_existing:
+                drained = self._drain_existing_files()
+                if drained:
+                    logger.info("Existing inbox drained: %d file(s) processed.", drained)
+            logger.info("Watching %s for new files...", self.inbox_dir)
+
             while not self._stop_event.is_set():
                 self._stop_event.wait(timeout=1.0)
         except KeyboardInterrupt:

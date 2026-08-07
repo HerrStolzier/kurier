@@ -60,6 +60,20 @@ class Engine:
                 message=f"File not found: {file_path}",
             )
 
+        # Datei-Kennzeichen VOR dem Lesen festhalten: Es muss zu dem Stand
+        # gehoeren, den Extraktion und Klassifikation gleich lesen. Ein stat()
+        # nach der Verarbeitung wuerde bei einer zwischenzeitlich geaenderten
+        # Datei die NEUE Version als erledigt vermerken, obwohl die alte
+        # verarbeitet wurde — nach einem Neustart wuerde sie uebersprungen
+        # (Cross-Model-Review 2026-08-06, P2). Und vor dem Routing sowieso:
+        # Folder-Routen verschieben die Datei, danach ist nichts mehr zu messen.
+        from arkiv.db.store import file_source_signature
+
+        try:
+            source_signature: str | None = file_source_signature(file_path.stat())
+        except OSError:
+            source_signature = None
+
         # Step 1: Extract content
         content = self._extract_content(file_path)
 
@@ -105,6 +119,7 @@ class Engine:
             suggested_filename=classification.suggested_filename,
             content_text=content[:2000] if store_content else "",
             status="pending",
+            source_signature=source_signature,
         )
 
         # Step 6: Try to route

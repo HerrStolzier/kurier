@@ -4,12 +4,23 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def file_source_signature(st: os.stat_result) -> str:
+    """Erkennungsmerkmal einer Quelldatei: Groesse und mtime in Nanosekunden.
+
+    Dasselbe Merkmal, das der Watcher in-memory nutzt — hier persistiert,
+    damit ein Neustart erkennt, ob genau diese Version schon geroutet wurde.
+    """
+    return f"{st.st_size}:{st.st_mtime_ns}"
+
 
 TABLE_SCHEMA = """\
 CREATE TABLE IF NOT EXISTS items (
@@ -26,6 +37,7 @@ CREATE TABLE IF NOT EXISTS items (
     language TEXT,
     route_name TEXT,
     content_text TEXT,  -- original content for re-embedding
+    source_signature TEXT,  -- "size:mtime_ns" of the source file at ingest time
     status TEXT NOT NULL DEFAULT 'routed',  -- pending, routed, failed, undone
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -179,6 +191,7 @@ class Store:
         self._conn.executescript(WEBHOOK_OUTBOX_SCHEMA)
         self._migrate_status_column_if_needed()
         self._migrate_title_columns_if_needed()
+        self._migrate_source_signature_column_if_needed()
         self._migrate_fts_if_needed()
         self._conn.executescript(FTS_SCHEMA)
         self._backfill_title_fields_if_needed()
@@ -225,6 +238,16 @@ class Store:
             # Column already exists — that's fine
             if "duplicate column name" not in str(e).lower():
                 logger.debug("Status column migration: %s", e)
+
+    def _migrate_source_signature_column_if_needed(self) -> None:
+        """Add source_signature column for older databases (stays NULL there)."""
+        try:
+            self._conn.execute("ALTER TABLE items ADD COLUMN source_signature TEXT")
+            self._conn.commit()
+            logger.info("Migrated items table: added source_signature column")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e).lower():
+                logger.debug("source_signature column migration: %s", e)
 
     def _migrate_title_columns_if_needed(self) -> None:
         """Add memory-search title columns for older databases."""
@@ -289,6 +312,7 @@ class Store:
         content_text: str = "",
         embedding: bytes | None = None,
         status: str = "routed",
+        source_signature: str | None = None,
     ) -> int:
         """Record a processed item. Returns the item ID."""
         destination_name = _path_name(destination)
@@ -302,8 +326,8 @@ class Store:
                 original_path, destination, suggested_filename, destination_name,
                 display_title, category, confidence, summary, tags, language,
                 route_name, content_text,
-                status, created_at
-               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                source_signature, status, created_at
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 original_path,
                 destination,
@@ -317,6 +341,7 @@ class Store:
                 language,
                 route_name,
                 content_text,
+                source_signature,
                 status,
                 datetime.now(UTC).isoformat(),
             ),
@@ -649,6 +674,32 @@ class Store:
             (limit,),
         )
         return [dict(row) for row in cursor.fetchall()]
+
+    def was_routed_unchanged(self, original_path: str, source_signature: str) -> bool:
+        """True, wenn genau DIESE Version der Datei bereits erfolgreich geroutet wurde.
+
+        Massgeblich ist ausschliesslich das persistierte Datei-Kennzeichen
+        (Groesse:mtime_ns) — dieselbe Identitaets-Heuristik, die der Watcher
+        in-memory nutzt. Ein Zeitvergleich stattdessen uebersieht Ersetzungen,
+        die einen aelteren Zeitstempel mitbringen (cp -p, rsync, Backup-
+        Restore) — die neue Datei wuerde fuer immer uebersprungen
+        (Cross-Model-Review 2026-08-06, P1).
+
+        Alt-Zeilen ohne Kennzeichen matchen bewusst NIE: nach dem Upgrade wird
+        eine liegengebliebene Webhook-only-Datei damit genau einmal erneut
+        verarbeitet (neue Zeile inklusive Kennzeichen). Ein Zeit-Fallback fuer
+        diese Zeilen waere dauerhaft verlustbehaftet, die Einmal-Verarbeitung
+        ist es nicht (Cross-Model-Review 2026-08-06, P1).
+
+        Nur status='routed' zaehlt: pending/failed sollen erneut versucht werden.
+        """
+        row = self._conn.execute(
+            "SELECT 1 FROM items"
+            " WHERE original_path = ? AND status = 'routed' AND source_signature = ?"
+            " LIMIT 1",
+            (original_path, source_signature),
+        ).fetchone()
+        return row is not None
 
     def count_embeddings(self) -> int:
         """Count items that have embeddings stored."""

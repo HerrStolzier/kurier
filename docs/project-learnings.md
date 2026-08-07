@@ -21,6 +21,8 @@ Durable learnings from recent `kurier` work. Keep this file for practical caveat
 - Mocked tests can miss real provider and plugin wiring bugs. After touching classification or routing flow, run at least one smoke test against a real provider.
 - `mypy` is strict enough to catch integration details that unit tests may gloss over, especially around subprocess text handling and typed dict shapes.
 - When changing webhook routing, cover both the installed-plugin path and the missing-plugin path. The missing-plugin branch should still enqueue the same versioned payload for retry instead of becoming a logging-only failure.
+- macOS/fsevents delivers ONLY Modified events (never Created) for cloned files — Finder copies and `cp` on APFS set the `is_cloned` flag. A watcher that ignores Modified events for unknown paths silently misses such files until the next restart. Observed live 2026-08-06; the watcher now processes unknown paths on Modified and relies on in-flight lock + signature dedup against double processing.
+- TOML top-level keys (`inbox_dir`, `notifications`, ...) must appear BEFORE the first `[section]` header. Placed after one, they silently become keys of that section and pydantic falls back to defaults — a hand-written test config pointed the watcher at the REAL inbox this way. When smoke-testing with a temp config, assert the loaded `inbox_dir` before starting the watcher.
 
 ## Infra / Deploy Notes
 

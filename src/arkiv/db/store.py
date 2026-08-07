@@ -408,10 +408,18 @@ class Store:
         # Alt-Format-Signaturen (size:mtime, vor dem SHA-Umbau) zaehlen als
         # Treffer und werden dabei auf das neue Format gehoben — sonst
         # entstuende nach dem Upgrade genau ein Duplikat pro Fehlschlag.
+        # Alt-Eintraege mit OFFENER Webhook-Zustellung bleiben unangetastet:
+        # ihre Signatur gehoert zur alten Datei-Version. Wuerde sie aufs neue
+        # SHA gehoben, saehe ein echter neuer Fehlschlag so aus, als laufe zu
+        # ihm schon eine Zustellung — der Startscan wuerde ihn ueberspringen
+        # (Cross-Model-Review 2026-08-07, P1).
         row = self._conn.execute(
             "SELECT id FROM items WHERE original_path = ? AND status = 'failed' "
             "AND (ifnull(source_signature, '') = ifnull(?, '') "
-            "     OR ifnull(source_signature, '') NOT LIKE 'sha256:%') "
+            "     OR (ifnull(source_signature, '') NOT LIKE 'sha256:%' "
+            "         AND NOT EXISTS (SELECT 1 FROM webhook_outbox w "
+            "                         WHERE w.item_id = items.id "
+            "                           AND w.status IN ('pending', 'failed')))) "
             "ORDER BY (ifnull(source_signature, '') = ifnull(?, '')) DESC, id DESC LIMIT 1",
             (original_path, source_signature, source_signature),
         ).fetchone()
@@ -803,6 +811,33 @@ class Store:
             "SELECT 1 FROM items"
             " WHERE original_path = ? AND status = 'routed' AND source_signature = ?"
             " LIMIT 1",
+            (original_path, source_signature),
+        ).fetchone()
+        return row is not None
+
+    def has_open_webhook_delivery(self, original_path: str, source_signature: str) -> bool:
+        """True, wenn zu genau DIESER Version der Datei noch eine Zustellung offen ist.
+
+        Eine Webhook-only-Route laesst die Datei im Eingang liegen. Schlaegt die
+        Zustellung fehl, steht das Item auf 'failed' und eine Outbox-Zeile ist
+        offen — `was_routed_unchanged` greift dann nicht, und jeder Neustart
+        wuerde die unveraenderte Datei erneut verarbeiten und eine zweite
+        Zustellung erzeugen. `kurier webhooks retry` wuerde dasselbe Dokument
+        danach doppelt senden (Cross-Model-Review 2026-08-07, P1). Die offene
+        Zustellung ist der laufende Vorgang: der Startscan laesst sie in Ruhe.
+
+        Alt-Zeilen ohne Kennzeichen matchen bewusst NIE (NULL-Vergleich).
+        Rueckgaengig gemachte Items zaehlen nicht: dort will der Nutzer, dass
+        die Datei wieder verarbeitet wird.
+        """
+        row = self._conn.execute(
+            """SELECT 1 FROM webhook_outbox AS w
+               JOIN items AS i ON i.id = w.item_id
+               WHERE i.original_path = ?
+                 AND i.source_signature = ?
+                 AND i.status != 'undone'
+                 AND w.status IN ('pending', 'failed')
+               LIMIT 1""",
             (original_path, source_signature),
         ).fetchone()
         return row is not None

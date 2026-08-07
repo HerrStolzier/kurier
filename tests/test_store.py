@@ -459,3 +459,101 @@ def test_upsert_failure_bevorzugt_exakten_treffer_vor_alt_eintrag(tmp_path):
     assert retry == sha
     failed = store.get_failed_items()
     assert len([f for f in failed if f["source_signature"] == "sha256:a:1"]) == 1
+
+
+def _record_with_open_webhook(
+    store: Store,
+    path: str,
+    *,
+    signature: str | None,
+    item_status: str = "failed",
+    delivery_status: str = "pending",
+) -> int:
+    item_id = store.record_item(
+        original_path=path,
+        destination="https://example.com/hook",
+        category="notiz",
+        confidence=0.9,
+        summary="",
+        tags=[],
+        language="de",
+        route_name="notify",
+        status=item_status,
+        source_signature=signature,
+    )
+    delivery_id = store.enqueue_webhook(
+        item_id=item_id,
+        route_name="notify",
+        url="https://example.com/hook",
+        payload={"payload_version": 1},
+        last_error="boom",
+    )
+    if delivery_status == "delivered":
+        store.mark_webhook_delivered(delivery_id)
+    elif delivery_status == "failed":
+        store.mark_webhook_failed(delivery_id, error="boom", next_attempt_at=None, terminal=True)
+    return item_id
+
+
+def test_has_open_webhook_delivery_matches_pending_and_failed(store: Store) -> None:
+    """Eine offene Zustellung gehoert dem Retry-Pfad: der Startscan muss die
+    unveraenderte Datei liegen lassen, sonst entsteht eine zweite Zustellung
+    (Cross-Model-Review 2026-08-07, P1)."""
+    _record_with_open_webhook(store, "/inbox/offen.txt", signature="100:200")
+    _record_with_open_webhook(
+        store, "/inbox/endgueltig.txt", signature="100:200", delivery_status="failed"
+    )
+
+    assert store.has_open_webhook_delivery("/inbox/offen.txt", "100:200") is True
+    assert store.has_open_webhook_delivery("/inbox/endgueltig.txt", "100:200") is True
+    # Andere Datei-Version am selben Pfad = neuer Vorgang.
+    assert store.has_open_webhook_delivery("/inbox/offen.txt", "999:111") is False
+    assert store.has_open_webhook_delivery("/inbox/unbekannt.txt", "100:200") is False
+
+
+def test_has_open_webhook_delivery_ignores_delivered_and_undone(store: Store) -> None:
+    _record_with_open_webhook(
+        store, "/inbox/fertig.txt", signature="100:200", delivery_status="delivered"
+    )
+    item_id = _record_with_open_webhook(store, "/inbox/rueckgaengig.txt", signature="100:200")
+    store.update_status(item_id, "undone")
+
+    assert store.has_open_webhook_delivery("/inbox/fertig.txt", "100:200") is False
+    # Rueckgaengig gemacht = der Nutzer will die Datei wieder verarbeitet sehen.
+    assert store.has_open_webhook_delivery("/inbox/rueckgaengig.txt", "100:200") is False
+
+
+def test_has_open_webhook_delivery_never_matches_legacy_rows(store: Store) -> None:
+    _record_with_open_webhook(store, "/inbox/alt.txt", signature=None)
+
+    assert store.has_open_webhook_delivery("/inbox/alt.txt", "1:1") is False
+
+
+def test_upsert_failure_laesst_alt_eintrag_mit_offener_zustellung_in_ruhe(tmp_path: Path) -> None:
+    """Alt-Signatur + offene Outbox-Zeile: gehoert dem Retry-Pfad, nicht dem Upsert."""
+    store = Store(tmp_path / "t3.db")
+    legacy_id = store.record_item(
+        original_path="/inbox/doc.pdf",
+        destination="",
+        category="rechnung",
+        confidence=0.9,
+        summary="Altes Dokument",
+        tags=[],
+        language="de",
+        route_name="notify",
+        status="failed",
+        source_signature="100:200",
+    )
+    store.enqueue_webhook(
+        item_id=legacy_id,
+        route_name="notify",
+        url="https://example.com/hook",
+        payload={"x": 1},
+        last_error="Zustellung fehlgeschlagen",
+    )
+
+    neu = store.upsert_failure("/inbox/doc.pdf", "sha256:neu:5", "Neuer Fehlschlag")
+
+    assert neu != legacy_id
+    legacy = next(f for f in store.get_failed_items() if f["id"] == legacy_id)
+    assert legacy["source_signature"] == "100:200"

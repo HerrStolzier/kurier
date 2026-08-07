@@ -729,7 +729,7 @@ class WatchScreen(Screen[None]):
     def _run_watcher(self) -> None:
         """Watcher im Hintergrund-Thread starten (blockierend)."""
         try:
-            from arkiv.application.ingest import already_routed_unchanged
+            from arkiv.application.ingest import already_handled_unchanged
             from arkiv.core.engine import Engine
             from arkiv.inlets.watch import Watcher
 
@@ -744,7 +744,7 @@ class WatchScreen(Screen[None]):
                 callback=self._watch_callback,
                 max_concurrent=3,
                 drain_existing=True,
-                drain_skip=lambda p: already_routed_unchanged(store, p),
+                drain_skip=lambda p: already_handled_unchanged(store, p),
             )
             self._watcher.start()
         except Exception as exc:

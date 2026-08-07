@@ -272,3 +272,64 @@ def test_failed_platzhalter_erscheinen_nicht_in_der_prueferliste(tmp_path: Path)
 
     assert engine.store.get_failed_items()
     assert engine.store.low_confidence(threshold=0.6) == []
+
+
+def test_neustart_ingested_datei_mit_offener_zustellung_nicht_erneut(tmp_path: Path) -> None:
+    """Webhook-only-Fehlschlag: Datei bleibt im Eingang, Outbox-Zeile bleibt offen.
+
+    Der Startscan des Watchers darf sie beim Neustart NICHT erneut verarbeiten —
+    sonst entsteht eine zweite Zustellung fuer dasselbe Dokument und
+    `kurier webhooks retry` sendet es doppelt (Cross-Model-Review 2026-08-07, P1).
+    """
+    from arkiv.application.ingest import already_handled_unchanged
+
+    routes = {
+        "notify": {
+            "type": "webhook",
+            "url": "https://example.com/hook",
+            "categories": ["rechnung"],
+            "confidence_threshold": 0.7,
+        }
+    }
+    engine = _make_engine(tmp_path, routes)
+    source = tmp_path / "invoice.txt"
+    source.write_text("Rechnung 42")
+
+    with patch("arkiv_webhook.send_webhook", return_value=False):
+        result = _ingest(engine, source)
+
+    assert not result.success
+    assert source.exists()  # Webhook-only bewegt die Datei nicht
+    assert len(engine.store.list_webhook_outbox(statuses=("pending", "failed"))) == 1
+
+    # Neustart: frischer Store-Handle auf dieselbe Datenbank
+    restarted = _make_engine(tmp_path, routes)
+    assert already_handled_unchanged(restarted.store, source) is True
+
+    # Und wenn der Startscan sie trotzdem anfassen wuerde: die Pruefung ist der
+    # einzige Schutz — hier belegen wir, dass keine zweite Zeile entstanden ist.
+    assert len(restarted.store.list_webhook_outbox(statuses=("pending", "failed"))) == 1
+
+
+def test_neustart_verarbeitet_geaenderte_datei_trotz_offener_zustellung(tmp_path: Path) -> None:
+    """Wird die Datei nach dem Fehlschlag ersetzt, ist sie ein neuer Vorgang."""
+    from arkiv.application.ingest import already_handled_unchanged
+
+    routes = {
+        "notify": {
+            "type": "webhook",
+            "url": "https://example.com/hook",
+            "categories": ["rechnung"],
+            "confidence_threshold": 0.7,
+        }
+    }
+    engine = _make_engine(tmp_path, routes)
+    source = tmp_path / "invoice.txt"
+    source.write_text("Rechnung 42")
+
+    with patch("arkiv_webhook.send_webhook", return_value=False):
+        _ingest(engine, source)
+
+    source.write_text("Rechnung 42 — korrigierte Fassung")
+
+    assert already_handled_unchanged(engine.store, source) is False

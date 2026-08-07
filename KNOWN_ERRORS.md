@@ -2,7 +2,7 @@
 
 > **Zweck:** Bekannte Fehler in Kurier mit Symptom, Ursache und Loesung.
 > **Scope:** Ruff-Format-Drift, lokale DB-Zustaende, Webhook-Zustellung, Watcher-Stabilitaetsheuristik.
-> **Suchbegriffe:** ruff, format, drift, database, status, webhook, delivery, watcher, stability, retry, on_modified, failed, fehlgeschlagen, nicht geschafft, friendly_error
+> **Suchbegriffe:** ruff, format, drift, database, status, webhook, delivery, watcher, stability, retry, on_modified, failed, fehlgeschlagen, nicht geschafft, friendly_error, outbox, startscan, neustart, doppelte zustellung
 > **Stand:** 2026-08-07
 
 ## Global Ruff Format Drift
@@ -100,3 +100,32 @@ verstaendlichem Grund (`src/arkiv/core/errors.py`). Sichtbar im Dashboard-Tab
 'Nicht geschafft' und in `kurier doctor`. Wiederholte Fehlschlaege derselben Datei
 werden per Upsert zusammengefasst (`upsert_failure` in `src/arkiv/db/store.py`),
 und ein failed-Eintrag blockiert eine spaetere erfolgreiche Verarbeitung nicht.
+
+## Neustart erzeugt zweite Zustellung fuer dieselbe Datei
+
+Behoben am 2026-08-07. Gefunden im Cross-Model-Review desselben Tages (P1).
+
+### Symptom
+
+Eine Webhook-only-Zustellung schlaegt fehl, die Datei bleibt im Eingang und in
+`webhook_outbox` steht eine offene Zeile. Jeder Neustart des Watchers verarbeitet
+die unveraenderte Datei erneut: entweder stellt er sofort zu, oder es entsteht
+eine zweite offene Zeile. `kurier webhooks retry` sendet dasselbe Dokument danach
+doppelt.
+
+### Ursache
+
+Der Startscan uebersprang nur Dateien, deren Item auf `status = 'routed'` stand
+(`was_routed_unchanged` in `src/arkiv/db/store.py`). Ein Webhook-Fehlschlag setzt
+das Item aber auf `failed` — die offene Outbox-Zeile war fuer die Skip-Pruefung
+unsichtbar.
+
+### Loesung
+
+`already_handled_unchanged` in `src/arkiv/application/ingest.py` prueft jetzt
+zusaetzlich `Store.has_open_webhook_delivery`: gibt es zu genau dieser
+Datei-Version noch eine Zeile mit Status `pending` oder `failed`, gehoert der
+Vorgang dem Retry-Pfad und der Startscan laesst die Datei liegen. Ausgenommen
+bleiben rueckgaengig gemachte Items (`status = 'undone'`) und Alt-Zeilen ohne
+Datei-Kennzeichen. Eine geaenderte Datei am selben Pfad ist weiterhin ein neuer
+Vorgang und wird verarbeitet.

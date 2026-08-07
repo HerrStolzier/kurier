@@ -602,3 +602,26 @@ def test_stop_event_aborts_stability_wait(tmp_path: Path) -> None:
     handler.process_path(target, use_cooldown=False)
 
     assert processed == []
+
+
+def test_live_event_ueberspringt_datei_mit_persistentem_skip(tmp_path):
+    """Nach einem Neustart ist _processed leer. Ein Event auf einer unveraenderten
+    Datei mit offener Zustellung darf keinen erneuten Ingest ausloesen
+    (Cross-Model-Review 2026-08-07, P1)."""
+    from arkiv.inlets.watch import InboxHandler
+
+    calls = []
+    f = tmp_path / "doc.txt"
+    f.write_text("Inhalt")
+
+    handler = InboxHandler(
+        calls.append,
+        cooldown=0.0,
+        stability_interval=0.01,
+        stability_checks=1,
+        stability_timeout=1.0,
+        persistent_skip=lambda p: True,
+    )
+    assert handler.process_path(f) is True
+    assert calls == []
+    assert str(f) in handler._processed

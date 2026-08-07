@@ -14,14 +14,19 @@ def ingest_file(ctx: AppContext, file_path: Path) -> RouteResult:
     return ctx.engine.ingest_file(file_path)
 
 
-def already_routed_unchanged(store: Store, path: Path) -> bool:
-    """True, wenn diese Datei seit ihrem letzten Schreibzeitpunkt schon
-    erfolgreich geroutet wurde.
+def already_handled_unchanged(store: Store, path: Path) -> bool:
+    """True, wenn diese Datei-Version bereits erledigt ist ODER noch in Zustellung.
 
     Dann darf ein Startscan sie liegen lassen: Webhook-only-Routen lassen die
     Datei bewusst im Eingang, und ohne diese persistente Pruefung wuerde jeder
     Neustart des Watchers sie erneut verarbeiten und den Webhook erneut feuern
     (Cross-Model-Review 2026-08-06, P1).
+
+    Zwei Faelle zaehlen als "nicht nochmal anfassen":
+    1. erfolgreich geroutet und seitdem unveraendert,
+    2. Zustellung fehlgeschlagen, aber die Outbox-Zeile ist noch offen — die
+       gehoert dem Retry-Pfad. Ohne (2) erzeugte jeder Neustart eine zweite
+       Zustellung fuer dasselbe Dokument (Cross-Model-Review 2026-08-07, P1).
 
     Geprueft wird ausschliesslich gegen den Inhalts-Fingerabdruck. Zeilen im
     alten Groesse:mtime-Format matchen bewusst NICHT: sie weiterhin zu
@@ -35,7 +40,10 @@ def already_routed_unchanged(store: Store, path: Path) -> bool:
         signature = file_source_signature(path)
     except OSError:
         return False
-    return store.was_routed_unchanged(str(path), signature)
+    path_str = str(path)
+    if store.was_routed_unchanged(path_str, signature):
+        return True
+    return store.has_open_webhook_delivery(path_str, signature)
 
 
 def ingest_text(ctx: AppContext, text: str, name: str = "text_input") -> RouteResult:

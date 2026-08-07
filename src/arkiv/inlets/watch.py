@@ -107,9 +107,16 @@ class InboxHandler(FileSystemEventHandler):
         stability_interval: float = 0.5,
         stability_checks: int = 2,
         stability_timeout: float = 60.0,
+        persistent_skip: Callable[[Path], bool] | None = None,
     ) -> None:
         self.callback = callback
         self.cooldown = cooldown
+        # Persistente Skip-Pruefung auch fuer LIVE-Events: Nach einem Neustart
+        # ist _processed leer. Ein blosses touch (mtime neu, Inhalt gleich) auf
+        # einer Datei mit offener Webhook-Zustellung wuerde sonst erneut
+        # ingested und eine zweite Zustellung erzeugen
+        # (Cross-Model-Review 2026-08-07, P1).
+        self._persistent_skip = persistent_skip
         self._seen: dict[str, float] = {}
         # Pfade, deren Stabilitaets-Wartezeit in den Timeout lief — fuer diese
         # ist jedes Modify-Event ein Retry-Signal.
@@ -198,6 +205,43 @@ class InboxHandler(FileSystemEventHandler):
                     return False
 
                 self._retry_pending.discard(src_str)
+
+                if self._persistent_skip is not None:
+                    from arkiv.db.store import file_source_signature
+
+                    # Wettlauf schliessen: Wurde die Datei WAEHREND der
+                    # Skip-Pruefung geaendert, hat die In-Flight-Sperre das
+                    # zugehoerige Event verworfen — ohne erneuten Vergleich
+                    # bliebe der neue Inhalt liegen. Verglichen wird der
+                    # INHALTS-Fingerabdruck: gleich grosser Ersatz-Inhalt mit
+                    # erhaltenem Zeitstempel wuerde Groesse:mtime nicht
+                    # veraendern (Cross-Model-Review 2026-08-07, P1).
+                    # Merker-Stand VOR der Pruefung erfassen: Jede spaetere
+                    # Aenderung traegt dann eine neuere mtime als der Merker,
+                    # kuenftige Events fallen also nie faelschlich auf
+                    # "schon gesehen". Schlimmstenfalls ist der Merker zu alt
+                    # und es wird einmal unnoetig neu geprueft — nie umgekehrt.
+                    current = _signature(path)
+                    try:
+                        baseline: str | None = file_source_signature(path)
+                    except OSError:
+                        baseline = None
+                    if baseline is not None and self._persistent_skip(path):
+                        try:
+                            after: str | None = file_source_signature(path)
+                        except OSError:
+                            after = None
+                        if after == baseline:
+                            # Bereits erledigt oder in laufender Zustellung,
+                            # Inhalt unveraendert: Stand merken, damit
+                            # aufgestaute Events gar nicht erst hierher kommen.
+                            if current is not None:
+                                self._processed[src_str] = current
+                            logger.debug("Unveraendert und schon in Arbeit/erledigt: %s", path.name)
+                            return True
+                        source_label = "Changed during check, reprocessing"
+                        continue
+
                 logger.info("%s: %s", source_label, path.name)
 
                 if self._semaphore is not None:
@@ -348,7 +392,10 @@ class Watcher:
         self._semaphore = Semaphore(max_concurrent)
         self._stop_event = Event()
         self.handler = InboxHandler(
-            callback, semaphore=self._semaphore, stop_event=self._stop_event
+            callback,
+            semaphore=self._semaphore,
+            stop_event=self._stop_event,
+            persistent_skip=drain_skip,
         )
         self._llm_provider = llm_provider
         self._drain_existing = drain_existing

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import typer
 
-from arkiv.application.ingest import already_routed_unchanged
+from arkiv.application.ingest import already_handled_unchanged
 from arkiv.application.ingest import ingest_file as ingest_file_workflow
 from arkiv.application.ingest import ingest_text as ingest_text_workflow
 from arkiv.commands.common import console, get_context
@@ -107,7 +107,7 @@ def watch(
         drain_existing=drain_existing,
         # Webhook-only-Dateien bleiben im Eingang liegen — der Startscan darf
         # sie nach einem Neustart nicht erneut verarbeiten.
-        drain_skip=lambda p: already_routed_unchanged(engine.store, p),
+        drain_skip=lambda p: already_handled_unchanged(engine.store, p),
     )
     watcher.start()
 

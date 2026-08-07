@@ -2,8 +2,8 @@
 
 > **Zweck:** Bekannte Fehler in Kurier mit Symptom, Ursache und Loesung.
 > **Scope:** Ruff-Format-Drift, lokale DB-Zustaende, Webhook-Zustellung, Watcher-Stabilitaetsheuristik.
-> **Suchbegriffe:** ruff, format, drift, database, status, webhook, delivery, watcher, stability, retry, on_modified
-> **Stand:** 2026-08-04
+> **Suchbegriffe:** ruff, format, drift, database, status, webhook, delivery, watcher, stability, retry, on_modified, failed, fehlgeschlagen, nicht geschafft, friendly_error
+> **Stand:** 2026-08-07
 
 ## Global Ruff Format Drift
 
@@ -80,3 +80,23 @@ wird sonst ignoriert. Damit bleiben Webhook-only-Dateien vor Doppelverarbeitung
 geschuetzt, und wirklich weitergeschriebene Dateien kommen noch einmal dran. Der
 Cooldown greift auf diesem Pfad bewusst nicht: der Erzeuger kann innerhalb des
 Cooldown-Fensters fertig werden, und danach kommt kein Event mehr.
+
+## Fehlgeschlagene Dateien landen als 'Nicht geschafft' im Dashboard
+
+### Symptom
+
+Eine Datei (z.B. defekte PDF) wird nicht einsortiert. Frueher: keinerlei Spur in der
+Datenbank, die Datei blieb kommentarlos im Eingang liegen.
+
+### Ursache
+
+Bis 2026-08-07 las die Pipeline die Datei VOR dem ersten DB-Eintrag; Lese- und
+Klassifikationsfehler verliessen `ingest_file()` ohne Datensatz.
+
+### Loesung
+
+Seit UX Phase 5 speichert die Engine solche Fehlschlaege als `status='failed'` mit
+verstaendlichem Grund (`src/arkiv/core/errors.py`). Sichtbar im Dashboard-Tab
+'Nicht geschafft' und in `kurier doctor`. Wiederholte Fehlschlaege derselben Datei
+werden per Upsert zusammengefasst (`upsert_failure` in `src/arkiv/db/store.py`),
+und ein failed-Eintrag blockiert eine spaetere erfolgreiche Verarbeitung nicht.

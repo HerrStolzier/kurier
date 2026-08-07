@@ -10,7 +10,7 @@
                     </span>
                 </div>
                 <p class="text-sm text-gray-200 truncate font-medium">{{ item.source_name or 'Unbekannte Datei' }}</p>
-                <p class="text-sm text-gray-400 mt-1">{{ item.summary or 'Kein Grund gespeichert.' }}</p>
+                <p class="text-sm text-gray-400 mt-1">{{ item.failure_reason or item.summary or 'Kein Grund gespeichert.' }}</p>
                 <p class="text-xs text-gray-500 mt-2">
                     So geht es weiter: Lege die Datei erneut in den Eingangsordner oder lade sie oben
                     noch einmal hoch. Wenn es wieder passiert, nutze unten "Problem melden".

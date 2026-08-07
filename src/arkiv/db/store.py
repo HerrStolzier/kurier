@@ -192,6 +192,7 @@ class Store:
         self._migrate_status_column_if_needed()
         self._migrate_title_columns_if_needed()
         self._migrate_source_signature_column_if_needed()
+        self._migrate_failure_reason_column_if_needed()
         self._migrate_fts_if_needed()
         self._conn.executescript(FTS_SCHEMA)
         self._backfill_title_fields_if_needed()
@@ -248,6 +249,24 @@ class Store:
         except sqlite3.OperationalError as e:
             if "duplicate column name" not in str(e).lower():
                 logger.debug("source_signature column migration: %s", e)
+
+    def _migrate_failure_reason_column_if_needed(self) -> None:
+        """Add failure_reason column for older databases (stays NULL there)."""
+        try:
+            self._conn.execute("ALTER TABLE items ADD COLUMN failure_reason TEXT")
+            self._conn.commit()
+            logger.info("Migrated items table: added failure_reason column")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e).lower():
+                logger.debug("failure_reason column migration: %s", e)
+        # Zwischenstand-Datenbanken: Fehlergrund lag kurzzeitig in summary und
+        # wuerde dort im Suchindex haengen bleiben — nach failure_reason umziehen.
+        self._conn.execute(
+            "UPDATE items SET failure_reason = summary, summary = '' "
+            "WHERE route_name = '__error__' AND status = 'failed' "
+            "AND (failure_reason IS NULL OR failure_reason = '') AND summary != ''"
+        )
+        self._conn.commit()
 
     def _migrate_title_columns_if_needed(self) -> None:
         """Add memory-search title columns for older databases."""
@@ -378,24 +397,36 @@ class Store:
         if row is not None:
             item_id = int(row["id"])
             self._conn.execute(
-                "UPDATE items SET summary = ?, created_at = ? WHERE id = ?",
+                "UPDATE items SET failure_reason = ?, created_at = ? WHERE id = ?",
                 (reason, datetime.now(UTC).isoformat(), item_id),
             )
             self._conn.commit()
             return item_id
 
-        return self.record_item(
+        item_id = self.record_item(
             original_path=original_path,
             destination="",
             category="",
             confidence=0.0,
-            summary=reason,
+            summary="",
             tags=[],
             language="",
             route_name="__error__",
             status="failed",
             source_signature=source_signature,
         )
+        self.update_failure_reason(item_id, reason)
+        return item_id
+
+    def update_failure_reason(self, item_id: int, reason: str) -> None:
+        """Grund für einen Fehlschlag festhalten — in eigener Spalte.
+
+        Die Zusammenfassung bleibt unangetastet: Gelingt eine spätere
+        Webhook-Zustellung, zeigen Suche und Liste weiter die Dokument-
+        Zusammenfassung statt eines alten Fehlertexts (Review 2026-08-07).
+        """
+        self._conn.execute("UPDATE items SET failure_reason = ? WHERE id = ?", (reason, item_id))
+        self._conn.commit()
 
     def get_failed_items(self, limit: int = 20) -> list[dict[str, Any]]:
         """Fehlgeschlagene Einträge, neueste zuerst."""
@@ -803,6 +834,7 @@ class Store:
             """SELECT * FROM items
                WHERE confidence < ?
                AND status != 'undone'
+               AND status != 'failed'
                AND route_name != '__review__'
                ORDER BY confidence ASC, created_at DESC
                LIMIT ?""",

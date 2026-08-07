@@ -175,7 +175,7 @@ def test_extraction_fehler_erzeugt_failed_eintrag(tmp_path: Path) -> None:
     failed = engine.store.get_failed_items()
     assert len(failed) == 1
     assert failed[0]["status"] == "failed"
-    assert failed[0]["summary"]  # verständlicher Grund gespeichert
+    assert failed[0]["failure_reason"]  # verständlicher Grund gespeichert
 
 
 def test_leere_datei_erzeugt_failed_eintrag(tmp_path: Path) -> None:
@@ -188,7 +188,7 @@ def test_leere_datei_erzeugt_failed_eintrag(tmp_path: Path) -> None:
     assert not result.success
     failed = engine.store.get_failed_items()
     assert len(failed) == 1
-    assert "leer" in failed[0]["summary"]
+    assert "leer" in failed[0]["failure_reason"]
 
 
 def test_wiederholter_fehlschlag_haeuft_keine_duplikate_an(tmp_path: Path) -> None:
@@ -216,7 +216,7 @@ def test_klassifikations_fehler_erzeugt_failed_eintrag(tmp_path: Path) -> None:
     assert not result.success
     failed = engine.store.get_failed_items()
     assert len(failed) == 1
-    assert "Ollama" in failed[0]["summary"]
+    assert "Ollama" in failed[0]["failure_reason"]
 
 
 def test_fehlschlag_blockiert_spaeteren_erfolg_nicht(tmp_path: Path) -> None:
@@ -239,3 +239,36 @@ def test_fehlschlag_blockiert_spaeteren_erfolg_nicht(tmp_path: Path) -> None:
 
     assert result.success
     assert engine.store.get_recent(limit=1)[0]["status"] == "routed"
+
+
+def test_routing_fehler_speichert_grund_statt_zusammenfassung(tmp_path: Path) -> None:
+    routes = {
+        "archiv": {
+            "type": "folder",
+            "path": "",  # Folder-Route ohne Pfad -> Routing schlaegt fehl
+            "categories": ["rechnung"],
+            "confidence_threshold": 0.7,
+            "rename": False,
+        }
+    }
+    engine = _make_engine(tmp_path, routes)
+    source = tmp_path / "invoice.txt"
+    source.write_text("Rechnung 42")
+
+    result = _ingest(engine, source)
+
+    assert not result.success
+    failed = engine.store.get_failed_items()
+    assert len(failed) == 1
+    assert "fehlgeschlagen" in failed[0]["failure_reason"]
+    assert failed[0]["summary"] == "Testrechnung"
+
+
+def test_failed_platzhalter_erscheinen_nicht_in_der_prueferliste(tmp_path: Path) -> None:
+    engine = _make_engine(tmp_path, {})
+    source = tmp_path / "leer.txt"
+    source.write_text("   ")
+    engine.ingest_file(source)
+
+    assert engine.store.get_failed_items()
+    assert engine.store.low_confidence(threshold=0.6) == []

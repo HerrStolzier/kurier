@@ -12,7 +12,6 @@ _CONNECTION_MARKERS = (
     "connect call failed",
     "errno 61",
     "errno 111",
-    "operation not permitted",
     "timed out",
     "timeout",
     "urlopen error",
@@ -20,20 +19,32 @@ _CONNECTION_MARKERS = (
 )
 
 
-def friendly_error(exc: BaseException) -> str:
-    """Übersetzt eine Exception in eine Meldung, die sagt, was jetzt zu tun ist."""
+def friendly_error(exc: BaseException, provider: str | None = None) -> str:
+    """Übersetzt eine Exception in eine Meldung, die sagt, was jetzt zu tun ist.
+
+    `provider` steuert den Ratschlag bei Verbindungsfehlern: Bei Ollama hilft
+    "App öffnen", bei Cloud-Anbietern eher Internet/API-Schlüssel prüfen.
+    """
     text = str(exc)
     lowered = text.lower()
 
-    if any(marker in lowered for marker in _CONNECTION_MARKERS):
-        return (
-            "Die lokale KI ist nicht erreichbar. "
-            "Öffne die Ollama-App und versuche es danach erneut."
-        )
     if isinstance(exc, PermissionError):
         return "Kein Zugriff auf die Datei oder den Ordner. Prüfe die Berechtigungen."
     if isinstance(exc, FileNotFoundError):
         return "Die Datei oder der Ordner wurde nicht gefunden. Prüfe, ob der Pfad noch stimmt."
+
+    if any(marker in lowered for marker in _CONNECTION_MARKERS):
+        if provider == "ollama":
+            return (
+                "Die lokale KI ist nicht erreichbar. "
+                "Öffne die Ollama-App und versuche es danach erneut."
+            )
+        if provider:
+            return (
+                f"Der KI-Anbieter '{provider}' ist gerade nicht erreichbar. "
+                "Prüfe Internet-Verbindung und API-Schlüssel, dann noch einmal versuchen."
+            )
+        return "Die KI ist gerade nicht erreichbar. Versuche es gleich noch einmal."
     if isinstance(exc, OSError | UnicodeDecodeError) or "failed to open" in lowered:
         return "Die Datei konnte nicht gelesen werden. Prüfe, ob sie sich öffnen lässt."
 

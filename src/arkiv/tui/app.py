@@ -764,8 +764,12 @@ class WatchScreen(Screen[None]):
             cfg = self._config  # type: ignore[assignment]
             engine = Engine(cfg)
             result = engine.ingest_file(file_path)
-            self._processed += 1
-            self.call_from_thread(self._log_success, filename, result)
+            if result.success:
+                self._processed += 1
+                self.call_from_thread(self._log_success, filename, result)
+            else:
+                self._errors += 1
+                self.call_from_thread(self._log_error, filename, result.message)
         except Exception as exc:
             self._errors += 1
             self.call_from_thread(self._log_error, filename, str(exc))
@@ -1056,7 +1060,7 @@ class DoctorModal(ModalScreen[None]):
                 except Exception as e:
                     from arkiv.core.errors import friendly_error
 
-                    fail("KI-Modell erreichbar", friendly_error(e))
+                    fail("KI-Modell erreichbar", friendly_error(e, provider="ollama"))
             else:
                 ok("KI-Modell", f"{cfg.llm.provider} (API-Key über Umgebungsvariable)")
 

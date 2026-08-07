@@ -225,7 +225,8 @@ def _post_init_checks(config_path: Path) -> None:
             from arkiv.core.errors import friendly_error
 
             console.print(
-                f"[yellow]Test konnte nicht abgeschlossen werden:[/yellow] {friendly_error(e)}"
+                f"[yellow]Test konnte nicht abgeschlossen werden:[/yellow] "
+                f"{friendly_error(e, provider=cfg.llm.provider)}"
             )
 
 

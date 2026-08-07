@@ -83,7 +83,9 @@ class Engine:
             content = self._extract_content(file_path)
         except Exception as exc:
             logger.warning("Extraction failed for %s: %s", file_path.name, exc)
-            return self._fail_without_item(file_path, source_signature, friendly_error(exc))
+            return self._fail_without_item(
+                file_path, source_signature, friendly_error(exc, self.config.llm.provider)
+            )
 
         # Skip empty files — LLM will hallucinate on empty input
         if not content.strip():
@@ -95,17 +97,27 @@ class Engine:
             )
 
         # Step 2: Let plugins pre-process (pluggy returns list of hook results)
-        hook_results = self.plugin_manager.hook.pre_classify(content=content, path=str(file_path))
-        if hook_results:
-            # Use the last plugin's transformed content
-            content = hook_results[-1]
+        try:
+            hook_results = self.plugin_manager.hook.pre_classify(
+                content=content, path=str(file_path)
+            )
+            if hook_results:
+                # Use the last plugin's transformed content
+                content = hook_results[-1]
+        except Exception as exc:
+            logger.warning("pre_classify hook failed for %s: %s", file_path.name, exc)
+            # Bewusst ohne Provider: Die Ursache liegt bei der Erweiterung,
+            # nicht beim konfigurierten KI-Anbieter (Review 2026-08-07).
+            return self._fail_without_item(file_path, source_signature, friendly_error(exc))
 
         # Step 3: Classify
         try:
             classification = self.classifier.classify(content)
         except Exception as exc:
             logger.warning("Classification failed for %s: %s", file_path.name, exc)
-            return self._fail_without_item(file_path, source_signature, friendly_error(exc))
+            return self._fail_without_item(
+                file_path, source_signature, friendly_error(exc, self.config.llm.provider)
+            )
         logger.info(
             "Classified %s → %s (%.2f)",
             file_path.name,
@@ -114,7 +126,13 @@ class Engine:
         )
 
         # Step 4: Let plugins post-process classification
-        self.plugin_manager.hook.post_classify(classification=classification, path=str(file_path))
+        try:
+            self.plugin_manager.hook.post_classify(
+                classification=classification, path=str(file_path)
+            )
+        except Exception as exc:
+            logger.warning("post_classify hook failed for %s: %s", file_path.name, exc)
+            return self._fail_without_item(file_path, source_signature, friendly_error(exc))
 
         # Step 5: Store with status='pending' to get item_id before routing
         store_content = self.config.database.store_content
@@ -141,6 +159,12 @@ class Engine:
             self.store.update_status(item_id, "routed" if result.success else "failed")
             self.store.update_routing_metadata(item_id, result.destination, result.route_name)
             if not result.success:
+                # Der neue 'Nicht geschafft'-Tab zeigt summary als Grund —
+                # ohne diese Zeile stuende dort die Dokument-Zusammenfassung
+                # statt der Fehlerursache (Cross-Model-Review 2026-08-07, P2).
+                self.store.update_failure_reason(
+                    item_id, f"Einsortieren fehlgeschlagen: {result.message}"
+                )
                 # Schliesst das Race mit einem parallel laufenden
                 # `kurier webhooks retry`: Wurde die Outbox-Zeile schon
                 # zugestellt, bevor der failed-Status geschrieben war,
@@ -159,6 +183,10 @@ class Engine:
         except Exception as exc:
             logger.warning("Routing failed for %s: %s", file_path.name, exc)
             self.store.update_status(item_id, "failed")
+            self.store.update_failure_reason(
+                item_id,
+                f"Einsortieren fehlgeschlagen: {friendly_error(exc, self.config.llm.provider)}",
+            )
             result = RouteResult(
                 route_name="__failed__",
                 destination="",

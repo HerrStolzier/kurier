@@ -157,7 +157,9 @@ def doctor(
                         f"{cfg.llm.model} ist noch nicht installiert. Verfügbar: {available}",
                     )
             except Exception as e:
-                fail("KI-Modell erreichbar", f"Ollama antwortet nicht: {e}")
+                from arkiv.core.errors import friendly_error
+
+                fail("KI-Modell erreichbar", friendly_error(e))
 
             ram_gb = detect_ram_gb()
             fits, detail = model_fits_ram(cfg.llm.model, ram_gb)

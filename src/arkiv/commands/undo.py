@@ -55,7 +55,10 @@ def undo(
 
         if orig.exists():
             console.print(f"[yellow]Zielpfad bereits belegt:[/yellow] {orig}")
-            console.print("[dim]Datei nicht verschoben. Status bleibt unverändert.[/dim]")
+            console.print(
+                "[dim]Datei nicht verschoben. Benenne die Datei am Zielort um oder lösche "
+                "sie, dann noch einmal versuchen.[/dim]"
+            )
             continue
 
         orig.parent.mkdir(parents=True, exist_ok=True)

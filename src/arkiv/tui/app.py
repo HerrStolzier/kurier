@@ -556,7 +556,8 @@ class RecentScreen(Screen[None]):
         if orig_path.exists():
             self.call_from_thread(
                 self._set_status,
-                "[red]Originalpfad bereits belegt.[/red]",
+                "[red]Originalpfad bereits belegt.[/red] Benenne die Datei dort um "
+                "oder lösche sie, dann noch einmal versuchen.",
             )
             return
 
@@ -1051,7 +1052,9 @@ class DoctorModal(ModalScreen[None]):
                             f"{cfg.llm.model} ist noch nicht installiert. Verfügbar: {available}",
                         )
                 except Exception as e:
-                    fail("KI-Modell erreichbar", f"Ollama antwortet nicht: {str(e)[:60]}")
+                    from arkiv.core.errors import friendly_error
+
+                    fail("KI-Modell erreichbar", friendly_error(e))
             else:
                 ok("KI-Modell", f"{cfg.llm.provider} (API-Key über Umgebungsvariable)")
 
@@ -1360,6 +1363,7 @@ class SetupWizardScreen(Screen[None]):
         # Schritt 2: Modell-ListView
         yield ListView(id="wizard-model-list")
         yield Static("", id="wizard-ollama-status")
+        yield Button("Erneut prüfen", id="wizard-recheck-btn")
         # Schritt 3: Zusammenfassung
         yield Static("", id="wizard-summary")
         # Fallback: manuelles Eingabefeld
@@ -1382,6 +1386,7 @@ class SetupWizardScreen(Screen[None]):
         self._update_indicator()
 
         pick_btn = self.query_one("#wizard-pick-folder-btn", Button)
+        recheck_btn = self.query_one("#wizard-recheck-btn", Button)
         path_display = self.query_one("#wizard-path-display", Static)
         model_list = self.query_one("#wizard-model-list", ListView)
         ollama_status = self.query_one("#wizard-ollama-status", Static)
@@ -1395,6 +1400,7 @@ class SetupWizardScreen(Screen[None]):
 
         # Alles ausblenden
         pick_btn.display = False
+        recheck_btn.display = False
         path_display.display = False
         model_list.display = False
         ollama_status.display = False
@@ -1429,6 +1435,7 @@ class SetupWizardScreen(Screen[None]):
             model_list.display = True
             if self._ollama_checked:
                 self._populate_model_list()
+                recheck_btn.display = not self._ollama_running or not self._ollama_models
             else:
                 ollama_status.update("[dim]Prüfe, ob die lokale KI erreichbar ist...[/dim]")
             next_btn.label = "Weiter →"
@@ -1497,10 +1504,21 @@ class SetupWizardScreen(Screen[None]):
         self._ollama_checked = True
         self.call_from_thread(self._on_ollama_checked)
 
+    def _recheck_ollama(self) -> None:
+        """Ollama-Check auf Knopfdruck wiederholen."""
+        with contextlib.suppress(NoMatches):
+            self.query_one("#wizard-ollama-status", Static).update(
+                "[dim]Prüfe erneut, ob die lokale KI erreichbar ist...[/dim]"
+            )
+        threading.Thread(target=self._check_ollama, daemon=True).start()
+
     def _on_ollama_checked(self) -> None:
         """Wird im TUI-Thread aufgerufen, sobald Ollama-Check fertig ist."""
         if self._step == 2:
             self._populate_model_list()
+            with contextlib.suppress(NoMatches):
+                recheck_btn = self.query_one("#wizard-recheck-btn", Button)
+                recheck_btn.display = not self._ollama_running or not self._ollama_models
 
     def _populate_model_list(self) -> None:
         """Modell-Liste befüllen."""
@@ -1511,9 +1529,11 @@ class SetupWizardScreen(Screen[None]):
 
         if not self._ollama_running:
             ollama_status.update(
-                "[yellow]Lokale KI nicht gefunden.[/yellow]  "
-                "Installiere Ollama von [bold]https://ollama.com[/bold]  "
-                "[dim]— oder wähle schon jetzt ein Modell aus:[/dim]"
+                "[yellow]Lokale KI nicht gefunden. So geht es weiter:[/yellow]\n"
+                "  1. Öffne [bold]https://ollama.com[/bold] und installiere Ollama.\n"
+                "  2. Starte die Ollama-App.\n"
+                "  3. Wähle unten [bold]Erneut prüfen[/bold].\n"
+                "[dim]Du kannst auch schon jetzt ein Modell auswählen:[/dim]"
             )
             # Standard-Empfehlungsliste anbieten
             defaults = ["qwen2.5:7b", "qwen2.5:3b", "qwen2.5:1.5b", "mistral"]
@@ -1571,6 +1591,8 @@ class SetupWizardScreen(Screen[None]):
             self.action_next_step()
         elif event.button.id == "wizard-pick-folder-btn":
             threading.Thread(target=self._pick_folder, daemon=True).start()
+        elif event.button.id == "wizard-recheck-btn":
+            self._recheck_ollama()
 
     def _pick_folder(self) -> None:
         """Native OS-Ordner-Auswahl (nicht-blockierend im Thread)."""

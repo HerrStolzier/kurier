@@ -156,10 +156,20 @@ def init(
         _post_init_checks(path)
 
 
-def _post_init_checks(config_path: Path) -> None:
-    """Run post-init checks: Ollama, route dirs, test classification."""
+def _probe_ollama(ollama_url: str) -> tuple[bool, list[str]]:
+    """Prüfen, ob die lokale KI erreichbar ist, und Modelle auflisten."""
     import urllib.request
 
+    try:
+        with urllib.request.urlopen(f"{ollama_url}/api/tags", timeout=3) as resp:
+            data = json.loads(resp.read())
+            return True, [m["name"] for m in data.get("models", [])]
+    except Exception:
+        return False, []
+
+
+def _post_init_checks(config_path: Path) -> None:
+    """Run post-init checks: Ollama, route dirs, test classification."""
     console.print()
 
     try:
@@ -174,14 +184,20 @@ def _post_init_checks(config_path: Path) -> None:
             console.print(f"[dim]Ablage-Ordner vorbereitet:[/dim] {route_path}")
 
     ollama_url = (cfg.llm.base_url or "http://localhost:11434").rstrip("/")
-    ollama_running = False
-    try:
-        with urllib.request.urlopen(f"{ollama_url}/api/tags", timeout=3) as resp:
-            data = json.loads(resp.read())
-            models = [m["name"] for m in data.get("models", [])]
-            ollama_running = True
-    except Exception:
-        models = []
+    ollama_running, models = _probe_ollama(ollama_url)
+
+    while not ollama_running:
+        console.print(
+            "\n[yellow]Lokale KI nicht gefunden. So geht es weiter:[/yellow]\n"
+            "  1. Öffne [link]https://ollama.com[/link] und installiere Ollama.\n"
+            "  2. Starte die Ollama-App.\n"
+            "  3. Antworte hier mit J, dann prüft Kurier erneut."
+        )
+        answer = console.input("[bold]Nochmal prüfen? [J/n]:[/bold] ").strip().lower()
+        if answer in ("n", "nein", "no"):
+            console.print("[dim]Okay. Du kannst später jederzeit prüfen mit: kurier doctor[/dim]")
+            break
+        ollama_running, models = _probe_ollama(ollama_url)
 
     if ollama_running:
         console.print(f"[green]✓[/green] Lokale KI ist erreichbar ({ollama_url})")
@@ -205,13 +221,11 @@ def _post_init_checks(config_path: Path) -> None:
             else:
                 console.print(f"[yellow]Test braucht Aufmerksamkeit:[/yellow] {result.message}")
         except Exception as e:
-            console.print(f"[yellow]Test konnte nicht abgeschlossen werden:[/yellow] {e}")
-    else:
-        console.print(
-            "[yellow]Lokale KI nicht gefunden.[/yellow] "
-            "Installiere Ollama von [link]https://ollama.com[/link], "
-            "wenn Kurier lokal klassifizieren soll."
-        )
+            from arkiv.core.errors import friendly_error
+
+            console.print(
+                f"[yellow]Test konnte nicht abgeschlossen werden:[/yellow] {friendly_error(e)}"
+            )
 
 
 def register(app: typer.Typer) -> None:

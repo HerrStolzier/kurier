@@ -154,10 +154,15 @@ def _fitting_ocr_dpi(page: Any) -> int | None:
 
 
 def _rendered_page_size(page: Any, dpi: int) -> tuple[int, int, int]:
-    """Estimate rendered page dimensions before allocating a pixmap."""
+    """Estimate rendered page dimensions before allocating a pixmap.
+
+    Aufgerundet, weil PyMuPDF beim Rendern aufrundet: Bei krummen Punktmassen
+    schaetzte das Abrunden die Seite kleiner ein, als sie tatsaechlich wird —
+    die Pixelgrenze war damit nicht bindend (Cross-Model-Review 2026-08-09, P2).
+    """
     rect = page.rect
-    width = max(1, int((float(rect.width) / 72) * dpi))
-    height = max(1, int((float(rect.height) / 72) * dpi))
+    width = max(1, math.ceil((float(rect.width) / 72) * dpi))
+    height = max(1, math.ceil((float(rect.height) / 72) * dpi))
     return width, height, width * height
 
 

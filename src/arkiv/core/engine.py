@@ -19,27 +19,10 @@ from arkiv.plugins.manager import PluginManager
 logger = logging.getLogger(__name__)
 
 
-# Kennung fuer "kein echter Dateiinhalt, nur Metadaten". Steht in der ersten
-# Zeile des Ersatztextes und wird vor der Klassifikation wieder entfernt.
-_METADATA_FALLBACK_MARKER = "[kein-lesbarer-text]"
-
 # Obergrenze fuer die Sicherheit, wenn nur Metadaten vorlagen. Liegt unter dem
 # niedrigsten Routen-Schwellenwert der Standardeinrichtung, damit solche
 # Dokumente in der Pruefliste landen statt still einsortiert zu werden.
 _METADATA_FALLBACK_MAX_CONFIDENCE = 0.2
-
-
-def _is_metadata_fallback(content: str) -> bool:
-    """True, wenn der Text nur der Metadaten-Notbehelf ist."""
-    return content.startswith(_METADATA_FALLBACK_MARKER)
-
-
-def _strip_fallback_marker(content: str) -> str:
-    """Kennung entfernen — das Modell soll sie nicht als Inhalt lesen."""
-    if not _is_metadata_fallback(content):
-        return content
-    _, _, rest = content.partition("\n")
-    return rest
 
 
 def _normalize_search_text(value: str) -> str:
@@ -115,7 +98,7 @@ class Engine:
         # (Plan-Review 2026-08-07, P1). Deshalb: Fehlschlag als Eintrag
         # festhalten, damit Dashboard und Doctor ihn zeigen können.
         try:
-            content = self._extract_content(file_path)
+            content, nur_metadaten = self._extract_content(file_path)
         except Exception as exc:
             logger.warning("Extraction failed for %s: %s", file_path.name, exc)
             return self._fail_without_item(
@@ -130,12 +113,6 @@ class Engine:
                 source_signature,
                 "Die Datei ist leer oder enthält keinen lesbaren Text.",
             )
-
-        # Nur Metadaten lesbar? Dann sieht das Modell praktisch nur den
-        # Dateinamen. Die Kennung fliegt vor der Klassifikation raus, das
-        # Ergebnis wird danach als unsicher markiert.
-        nur_metadaten = _is_metadata_fallback(content)
-        content = _strip_fallback_marker(content)
 
         # Step 2: Let plugins pre-process (pluggy returns list of hook results)
         try:
@@ -159,8 +136,6 @@ class Engine:
             return self._fail_without_item(
                 file_path, source_signature, friendly_error(exc, self.config.llm.provider)
             )
-        if nur_metadaten:
-            classification = self._mark_as_guess(classification, file_path)
         logger.info(
             "Classified %s → %s (%.2f)",
             file_path.name,
@@ -176,6 +151,13 @@ class Engine:
         except Exception as exc:
             logger.warning("post_classify hook failed for %s: %s", file_path.name, exc)
             return self._fail_without_item(file_path, source_signature, friendly_error(exc))
+
+        # Deckelung bewusst NACH dem Hook: post_classify darf die Klassifikation
+        # veraendern und koennte die Sicherheit sonst wieder hochsetzen — dann
+        # ginge die Datei trotz fehlendem Text in einen Ordner statt in die
+        # Pruefliste (Cross-Model-Review 2026-08-09, P2).
+        if nur_metadaten:
+            classification = self._mark_as_guess(classification, file_path)
 
         # Step 5: Store with status='pending' to get item_id before routing
         store_content = self.config.database.store_content
@@ -579,17 +561,21 @@ class Engine:
             logger.warning("Embedding generation failed: %s", e)
             return None
 
-    def _extract_content(self, file_path: Path) -> str:
-        """Extract text content from a file.
+    def _extract_content(self, file_path: Path) -> tuple[str, bool]:
+        """Text aus einer Datei lesen.
 
-        Reiner Text; ob es sich um echten Dateiinhalt oder nur um den
-        Metadaten-Notbehelf handelt, beantwortet `_is_metadata_fallback`.
+        Gibt (text, nur_metadaten) zurueck. `nur_metadaten` ist True, wenn sich
+        kein echter Inhalt lesen liess und nur der Notbehelf aus Dateiname und
+        Groesse uebrig bleibt. Bewusst ein eigener Rueckgabewert statt einer
+        Kennung im Text: Ein Dokument, das zufaellig mit derselben Zeichenfolge
+        beginnt, wuerde sonst faelschlich als unlesbar gelten
+        (Cross-Model-Review 2026-08-09, P2).
         """
         mime_type, _ = mimetypes.guess_type(str(file_path))
 
         # Plain text files
         if mime_type and mime_type.startswith("text/"):
-            return file_path.read_text(errors="replace")[:8000]
+            return file_path.read_text(errors="replace")[:8000], False
 
         # Common text-based formats without proper MIME
         text_extensions = {
@@ -603,7 +589,7 @@ class Engine:
             ".log",
         }
         if file_path.suffix.lower() in text_extensions:
-            return file_path.read_text(errors="replace")[:8000]
+            return file_path.read_text(errors="replace")[:8000], False
 
         # Try OCR for PDFs and images
         from arkiv.core.ocr import extract_text, is_ocr_candidate
@@ -612,7 +598,7 @@ class Engine:
             text = extract_text(file_path)
             if text:
                 logger.info("OCR extracted %d chars from %s", len(text), file_path.name)
-                return text[:8000]
+                return text[:8000], False
 
         # Kein lesbarer Text: nur Metadaten als Notbehelf. Das Modell sieht dann
         # praktisch nur den Dateinamen und raet — bei einer Datei namens
@@ -621,9 +607,8 @@ class Engine:
         # Der Text traegt deshalb eine Kennung, die ingest_file auswertet.
         stat = file_path.stat()
         return (
-            f"{_METADATA_FALLBACK_MARKER}\n"
             f"File: {file_path.name}\n"
             f"Type: {mime_type or 'unknown'}\n"
             f"Size: {stat.st_size} bytes\n"
             f"Extension: {file_path.suffix}\n"
-        )
+        ), True

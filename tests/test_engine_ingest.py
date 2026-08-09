@@ -587,3 +587,71 @@ def test_echter_text_bleibt_unangetastet(tmp_path: Path) -> None:
     item = engine.store.get_recent(limit=1)[0]
     assert item["confidence"] == 0.9
     assert "kein Text lesen" not in (item["summary"] or "")
+
+
+def test_post_hook_kann_die_deckelung_nicht_aufheben(tmp_path: Path) -> None:
+    """Ein Plugin darf eine Namens-Vermutung nicht zur sicheren Ablage machen.
+
+    post_classify darf die Klassifikation absichtlich veraendern. Wuerde die
+    Deckelung vor dem Hook greifen, koennte ein Plugin die Sicherheit wieder
+    hochsetzen und die Datei landete trotz fehlendem Text in einem Ordner
+    (Cross-Model-Review 2026-08-09, P2).
+    """
+
+    class ConfidencePlugin:
+        @hookimpl
+        def post_classify(self, classification: Classification, path: str) -> None:
+            classification.confidence = 0.99
+
+    routes = {
+        "archiv": {
+            "type": "folder",
+            "path": str(tmp_path / "archiv"),
+            "categories": ["rechnung"],
+            "confidence_threshold": 0.7,
+            "rename": False,
+        }
+    }
+    engine = _make_engine(tmp_path, routes)
+    engine.plugin_manager.register(ConfidencePlugin(), name="confidence")
+    source = tmp_path / "RechnungDienstleistungen.pdf"
+    source.write_bytes(b"%PDF-1.4 kein extrahierbarer Text")
+
+    with (
+        patch.object(engine.classifier, "classify", return_value=_classification()),
+        patch.object(engine, "_generate_embedding", return_value=None),
+        patch("arkiv.core.ocr.extract_text", return_value=""),
+    ):
+        engine.ingest_file(source)
+
+    item = engine.store.get_recent(limit=1)[0]
+    assert item["confidence"] <= 0.2
+    assert item["route_name"] == "__review__"
+
+
+def test_inhalt_mit_klammer_am_anfang_gilt_als_echter_text(tmp_path: Path) -> None:
+    """Gegenprobe zum frueheren Marker-im-Text: Solcher Inhalt ist echt.
+
+    Der Notbehelf wird ueber einen eigenen Rueckgabewert gemeldet, nicht ueber
+    eine Zeichenfolge im Text — sonst wuerde ein Dokument, das zufaellig so
+    beginnt, faelschlich als unlesbar gelten (Cross-Model-Review 2026-08-09, P2).
+    """
+    routes = {
+        "archiv": {
+            "type": "folder",
+            "path": str(tmp_path / "archiv"),
+            "categories": ["rechnung"],
+            "confidence_threshold": 0.7,
+            "rename": False,
+        }
+    }
+    engine = _make_engine(tmp_path, routes)
+    source = tmp_path / "notiz.txt"
+    source.write_text("[kein-lesbarer-text] Rechnung über 42 EUR von den Stadtwerken")
+
+    _ingest(engine, source)
+
+    item = engine.store.get_recent(limit=1)[0]
+    assert item["confidence"] == 0.9
+    assert item["route_name"] == "archiv"
+    assert "[kein-lesbarer-text]" in (item["content_text"] or "")

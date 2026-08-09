@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -557,3 +558,195 @@ def test_upsert_failure_laesst_alt_eintrag_mit_offener_zustellung_in_ruhe(tmp_pa
     assert neu != legacy_id
     legacy = next(f for f in store.get_failed_items() if f["id"] == legacy_id)
     assert legacy["source_signature"] == "100:200"
+
+
+def test_get_last_undoable_ueberspringt_webhook_ziele(tmp_path: Path) -> None:
+    """Ein Webhook-Ziel ist eine URL, keine Datei. Als 'undone' markiert wuerde
+    der naechste Startscan denselben Webhook erneut feuern."""
+    store = Store(tmp_path / "u.db")
+    datei_id = store.record_item(
+        original_path="/inbox/a.pdf",
+        destination="/archiv/a.pdf",
+        category="rechnung",
+        confidence=0.9,
+        summary="Datei",
+        tags=[],
+        language="de",
+        route_name="archiv",
+    )
+    store.record_item(
+        original_path="/inbox/b.pdf",
+        destination="https://example.com/hook",
+        category="rechnung",
+        confidence=0.9,
+        summary="Webhook",
+        tags=[],
+        language="de",
+        route_name="n8n",
+    )
+
+    letzter = store.get_last_undoable()
+
+    assert letzter is not None
+    assert letzter["id"] == datei_id
+
+
+def test_record_duplicate_legt_pro_datei_nur_eine_zeile_an(tmp_path: Path) -> None:
+    store = Store(tmp_path / "d.db")
+    original_id = store.record_item(
+        original_path="/inbox/original.pdf",
+        destination="/archiv/original.pdf",
+        category="rechnung",
+        confidence=0.9,
+        summary="Original",
+        tags=[],
+        language="de",
+        route_name="archiv",
+        source_signature="sha256:abc:10",
+    )
+    original = store.get_item(original_id)
+    assert original is not None
+
+    erste = store.record_duplicate("/inbox/kopie.pdf", "sha256:abc:10", original)
+    zweite = store.record_duplicate("/inbox/kopie.pdf", "sha256:abc:10", original)
+
+    assert erste == zweite
+    assert store.was_recorded_as_duplicate("/inbox/kopie.pdf", "sha256:abc:10") is True
+
+
+def test_duplikat_index_verhindert_zweite_zeile_auch_bei_direktem_insert(
+    tmp_path: Path,
+) -> None:
+    """Der partielle UNIQUE-Index ist die Absicherung gegen parallele Worker."""
+    import sqlite3
+
+    store = Store(tmp_path / "d2.db")
+    original_id = store.record_item(
+        original_path="/inbox/o.pdf",
+        destination="/archiv/o.pdf",
+        category="rechnung",
+        confidence=0.9,
+        summary="Original",
+        tags=[],
+        language="de",
+        route_name="archiv",
+        source_signature="sha256:xyz:5",
+    )
+    original = store.get_item(original_id)
+    assert original is not None
+    store.record_duplicate("/inbox/k.pdf", "sha256:xyz:5", original)
+
+    with pytest.raises(sqlite3.IntegrityError):
+        store._conn.execute(
+            "INSERT INTO items (original_path, category, confidence, route_name,"
+            " source_signature, status, created_at)"
+            " VALUES ('/inbox/k.pdf', '', 0.0, '__duplicate__', 'sha256:xyz:5',"
+            " 'duplicate', '2026-08-09')"
+        )
+
+
+def test_store_startet_mit_alt_datenbank_voller_doppelter_duplikate(tmp_path: Path) -> None:
+    """Vor der Absicherung konnten mehrere Duplikat-Zeilen zur selben Datei
+    entstehen. Der UNIQUE-Index darf den Start daran nicht scheitern lassen."""
+    db = tmp_path / "alt.db"
+    store = Store(db)
+    # Stand VOR der Absicherung nachstellen: ohne den Index konnten mehrere
+    # Duplikat-Zeilen zur selben Datei entstehen.
+    store._conn.execute("DROP INDEX IF EXISTS items_duplicate_guard_idx")
+    for _ in range(3):
+        store._conn.execute(
+            "INSERT INTO items (original_path, category, confidence, route_name,"
+            " source_signature, status, created_at)"
+            " VALUES ('/inbox/k.pdf', '', 0.0, '__duplicate__', 'sha256:a:1',"
+            " 'duplicate', '2026-08-09')"
+        )
+    store._conn.commit()
+    store._conn.close()
+
+    wieder_geoeffnet = Store(db)  # darf nicht werfen
+
+    zeilen = wieder_geoeffnet._conn.execute(
+        "SELECT COUNT(*) FROM items WHERE status = 'duplicate'"
+    ).fetchone()[0]
+    assert zeilen == 1
+
+
+def test_store_laesst_duplikate_ohne_signatur_in_ruhe(tmp_path: Path) -> None:
+    db = tmp_path / "alt2.db"
+    store = Store(db)
+    store._conn.execute("DROP INDEX IF EXISTS items_duplicate_guard_idx")
+    # Bewusst DERSELBE Pfad: nur so belegt der Test, dass die Bereinigung
+    # Zeilen ohne Signatur wirklich in Ruhe laesst (Review 2026-08-09).
+    for _ in range(2):
+        store._conn.execute(
+            "INSERT INTO items (original_path, category, confidence, route_name,"
+            " status, created_at)"
+            " VALUES ('/inbox/gleich.pdf', '', 0.0, '__duplicate__',"
+            " 'duplicate', '2026-08-09')"
+        )
+    store._conn.commit()
+    store._conn.close()
+
+    wieder_geoeffnet = Store(db)
+
+    zeilen = wieder_geoeffnet._conn.execute(
+        "SELECT COUNT(*) FROM items WHERE status = 'duplicate'"
+    ).fetchone()[0]
+    assert zeilen == 2
+
+
+def test_verbindung_bleibt_nach_kollision_nutzbar(tmp_path: Path) -> None:
+    """Nach einer Kollision muss weiter geschrieben werden koennen.
+
+    Belegt die Zusage (Verbindung bleibt nutzbar), nicht die Mechanik: Der
+    rollback() im Fehlerpfad ist defensiv — Gegenprobe ohne ihn bleibt gruen,
+    weil Pythons sqlite3 die fehlgeschlagene Einfuegung hier selbst aufloest.
+    Er bleibt trotzdem stehen, weil das nicht fuer jede Treiber-Version und
+    jeden isolation_level garantiert ist (Review 2026-08-09).
+    """
+    store = Store(tmp_path / "k.db")
+    original_id = store.record_item(
+        original_path="/inbox/o.pdf",
+        destination="/archiv/o.pdf",
+        category="rechnung",
+        confidence=0.9,
+        summary="Original",
+        tags=[],
+        language="de",
+        route_name="archiv",
+        source_signature="sha256:q:2",
+    )
+    original = store.get_item(original_id)
+    assert original is not None
+
+    store.record_duplicate("/inbox/k.pdf", "sha256:q:2", original)
+
+    # Zweiter Worker, der die Zeile noch nicht gesehen hat: NUR die
+    # Vorabpruefung blind stellen, damit wirklich der IntegrityError-Pfad mit
+    # rollback() laeuft. Das Nachladen der Gewinner-Zeile im except-Block muss
+    # echt bleiben, sonst testet der Mock sich selbst (Review 2026-08-09).
+    echte_suche = store._find_duplicate_row
+    aufrufe: list[int] = []
+
+    def blind_beim_ersten_mal(pfad: str, sig: str | None) -> int | None:
+        aufrufe.append(1)
+        return None if len(aufrufe) == 1 else echte_suche(pfad, sig)
+
+    with patch.object(store, "_find_duplicate_row", side_effect=blind_beim_ersten_mal):
+        erneut = store.record_duplicate("/inbox/k.pdf", "sha256:q:2", original)
+
+    assert len(aufrufe) == 2  # Vorabpruefung + Nachladen im Fehlerpfad
+    assert erneut is not None
+
+    # Weitere Schreibzugriffe muessen problemlos funktionieren
+    neue_id = store.record_item(
+        original_path="/inbox/x.pdf",
+        destination="/archiv/x.pdf",
+        category="rechnung",
+        confidence=0.9,
+        summary="Danach",
+        tags=[],
+        language="de",
+        route_name="archiv",
+    )
+    assert store.get_item(neue_id) is not None

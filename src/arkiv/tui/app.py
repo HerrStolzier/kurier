@@ -1983,14 +1983,12 @@ class HomeScreen(App[None]):
                 return
 
             store = Store(cfg.database.path)  # type: ignore[union-attr]
-            recent = store.get_recent(limit=1)
-            if not recent:
-                self._show_message("[yellow]Keine Einträge vorhanden.[/yellow]")
-                return
-
-            item = recent[0]
-            if item.get("status") == "undone":
-                self._show_message("[dim]Letzter Eintrag wurde bereits rückgängig gemacht.[/dim]")
+            # Nicht einfach den neuesten Eintrag: Duplikate und Fehlschlaege
+            # wurden nirgendwo abgelegt und haben kein Ziel — sie stuenden nur
+            # im Weg (Review 2026-08-09).
+            item = store.get_last_undoable()
+            if item is None:
+                self._show_message("[yellow]Kein rückgängig machbares Dokument vorhanden.[/yellow]")
                 return
 
             filename = Path(item.get("destination") or item.get("original_path") or "?").name

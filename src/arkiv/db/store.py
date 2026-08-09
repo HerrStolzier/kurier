@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS items (
     route_name TEXT,
     content_text TEXT,  -- original content for re-embedding
     source_signature TEXT,  -- "size:mtime_ns" of the source file at ingest time
-    status TEXT NOT NULL DEFAULT 'routed',  -- pending, routed, failed, undone
+    status TEXT NOT NULL DEFAULT 'routed',  -- pending, routed, failed, undone, duplicate
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 """
@@ -210,6 +210,8 @@ class Store:
         self._migrate_title_columns_if_needed()
         self._migrate_source_signature_column_if_needed()
         self._migrate_failure_reason_column_if_needed()
+        self._migrate_duplicate_of_column_if_needed()
+        self._create_duplicate_guard_index_if_needed()
         self._migrate_fts_if_needed()
         self._conn.executescript(FTS_SCHEMA)
         self._backfill_title_fields_if_needed()
@@ -284,6 +286,60 @@ class Store:
             "AND (failure_reason IS NULL OR failure_reason = '') AND summary != ''"
         )
         self._conn.commit()
+
+    def _create_duplicate_guard_index_if_needed(self) -> None:
+        """Eindeutigkeit fuer Duplikat-Zeilen in der Datenbank verankern.
+
+        Ohne sie koennen zwei parallele Worker beide "kein Eintrag vorhanden"
+        sehen und danach beide einfuegen. Der Index macht die zweite Einfuegung
+        zum IntegrityError, den record_duplicate() abfaengt
+        (Review 2026-08-09).
+        """
+        # Bestandsdaten zuerst bereinigen: Vor dieser Absicherung konnten
+        # mehrere Duplikat-Zeilen zu derselben Datei entstehen. Der Index wuerde
+        # daran mit IntegrityError scheitern — und Kurier startet dann gar nicht
+        # mehr (Review 2026-08-09). Nur ueberzaehlige Zeilen fallen weg, die
+        # aelteste bleibt. Zeilen ohne Signatur bleiben unangetastet: SQLite
+        # behandelt NULL im UNIQUE-Index als jeweils eigenen Wert, sie
+        # verletzen ihn also nie.
+        try:
+            self._conn.execute(
+                "DELETE FROM items WHERE status = 'duplicate'"
+                " AND source_signature IS NOT NULL"
+                " AND id NOT IN ("
+                "   SELECT MIN(id) FROM items"
+                "   WHERE status = 'duplicate' AND source_signature IS NOT NULL"
+                "   GROUP BY original_path, source_signature"
+                " )"
+            )
+            self._conn.commit()
+        except sqlite3.Error as e:
+            self._conn.rollback()
+            logger.debug("duplicate cleanup before index: %s", e)
+
+        try:
+            self._conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS items_duplicate_guard_idx"
+                " ON items(original_path, source_signature)"
+                " WHERE status = 'duplicate'"
+            )
+            self._conn.commit()
+        except sqlite3.Error as e:
+            # Auch IntegrityError abfangen: ohne Index laeuft Kurier weiter
+            # (record_duplicate prueft ohnehin vorher), ein Absturz beim Start
+            # waere die schlechtere Antwort.
+            self._conn.rollback()
+            logger.debug("duplicate guard index: %s", e)
+
+    def _migrate_duplicate_of_column_if_needed(self) -> None:
+        """Add duplicate_of column for older databases (stays NULL there)."""
+        try:
+            self._conn.execute("ALTER TABLE items ADD COLUMN duplicate_of INTEGER")
+            self._conn.commit()
+            logger.info("Migrated items table: added duplicate_of column")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e).lower():
+                logger.debug("duplicate_of column migration: %s", e)
 
     def _migrate_title_columns_if_needed(self) -> None:
         """Add memory-search title columns for older databases."""
@@ -757,6 +813,11 @@ class Store:
         )
         self._conn.commit()
 
+    def get_item(self, item_id: int) -> dict[str, Any] | None:
+        """Einen Eintrag vollständig laden. None, wenn es ihn nicht gibt."""
+        row = self._conn.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
+        return dict(row) if row else None
+
     def undo_item(self, item_id: int) -> dict[str, Any] | None:
         """Get item info for undo (original_path, destination). Returns None if not found."""
         row = self._conn.execute(
@@ -793,6 +854,125 @@ class Store:
             (limit,),
         )
         return [dict(row) for row in cursor.fetchall()]
+
+    def get_last_undoable(self) -> dict[str, Any] | None:
+        """Der zuletzt abgelegte Eintrag, der sich rückgängig machen lässt.
+
+        Ein Duplikat wurde nie irgendwohin verschoben und hat kein Ziel; stünde
+        es als neuester Eintrag vorn, liefe `kurier undo` ohne ID ins Leere und
+        das zuletzt WIRKLICH abgelegte Dokument bliebe unerreichbar.
+
+        Webhook-Ziele sind ebenfalls ausgenommen: Ihr `destination` ist eine URL,
+        keine Datei. `undo` hielte sie für eine verschwundene Datei, setzte den
+        Eintrag auf `undone` — und der nächste Startscan würde denselben Webhook
+        erneut feuern (Review 2026-08-09).
+        """
+        row = self._conn.execute(
+            "SELECT * FROM items WHERE status = 'routed'"
+            " AND ifnull(destination, '') != ''"
+            " AND destination NOT LIKE 'http://%'"
+            " AND destination NOT LIKE 'https://%'"
+            " ORDER BY created_at DESC, id DESC LIMIT 1"
+        ).fetchone()
+        return dict(row) if row is not None else None
+
+    def was_recorded_as_duplicate(self, original_path: str, source_signature: str) -> bool:
+        """True, wenn genau diese Datei-Version schon als Duplikat vermerkt ist.
+
+        Ein Duplikat bleibt im Eingang liegen. Ohne diese Prüfung legte jeder
+        Watcher-Neustart einen weiteren Duplikat-Eintrag an und schickte eine
+        weitere Benachrichtigung (Review 2026-08-09).
+        """
+        if not source_signature or not source_signature.startswith("sha256:"):
+            return False
+        row = self._conn.execute(
+            "SELECT 1 FROM items"
+            " WHERE original_path = ? AND source_signature = ? AND status = 'duplicate'"
+            " LIMIT 1",
+            (original_path, source_signature),
+        ).fetchone()
+        return row is not None
+
+    def find_routed_duplicate(
+        self, original_path: str, source_signature: str
+    ) -> dict[str, Any] | None:
+        """Ein bereits abgelegtes Dokument mit exakt gleichem Inhalt finden.
+
+        Der Fingerabdruck deckt den Inhalt ab, nicht den Dateinamen: Dieselbe
+        Rechnung als "scan1.pdf" und "rechnung_kopie.pdf" ist ein Duplikat.
+        Ein anderer Pfad ist Bedingung — gleicher Pfad plus gleicher Inhalt ist
+        kein Duplikat, sondern dieselbe Datei (das behandelt
+        `was_routed_unchanged` für den Startscan des Watchers).
+
+        Nur `routed` zählt: `pending` und `failed` sollen wiederholbar bleiben.
+        Alt-Zeilen ohne SHA-Fingerabdruck matchen nicht.
+        """
+        if not source_signature or not source_signature.startswith("sha256:"):
+            return None
+
+        row = self._conn.execute(
+            "SELECT * FROM items"
+            " WHERE source_signature = ? AND status = 'routed' AND original_path != ?"
+            " ORDER BY id ASC LIMIT 1",
+            (source_signature, original_path),
+        ).fetchone()
+        return dict(row) if row is not None else None
+
+    def _find_duplicate_row(self, original_path: str, source_signature: str | None) -> int | None:
+        """ID einer bereits vermerkten Duplikat-Zeile zu dieser Datei-Version."""
+        zeile = self._conn.execute(
+            "SELECT id FROM items WHERE original_path = ? AND status = 'duplicate'"
+            " AND ifnull(source_signature, '') = ifnull(?, '') LIMIT 1",
+            (original_path, source_signature),
+        ).fetchone()
+        return int(zeile["id"]) if zeile is not None else None
+
+    def record_duplicate(
+        self,
+        original_path: str,
+        source_signature: str | None,
+        original_item: dict[str, Any],
+    ) -> int:
+        """Ein erkanntes Duplikat festhalten, ohne es erneut zu klassifizieren."""
+        titel = (
+            original_item.get("display_title")
+            or original_item.get("destination_name")
+            or Path(str(original_item.get("original_path", ""))).name
+            or "einem früheren Dokument"
+        )
+        vorhanden = self._find_duplicate_row(original_path, source_signature)
+        if vorhanden is not None:
+            return vorhanden
+
+        try:
+            item_id = self.record_item(
+                original_path=original_path,
+                destination="",
+                category=str(original_item.get("category") or ""),
+                confidence=0.0,
+                summary=f"Inhaltsgleich mit: {titel}",
+                tags=[],
+                language=str(original_item.get("language") or ""),
+                route_name="__duplicate__",
+                status="duplicate",
+                source_signature=source_signature,
+            )
+        except sqlite3.IntegrityError:
+            # Ein parallel laufender Worker war schneller — seine Zeile gilt.
+            # Rollback zuerst: Die fehlgeschlagene Einfuegung laesst sonst eine
+            # offene Schreibtransaktion zurueck, die andere Schreiber mit
+            # "database is locked" blockiert (Review 2026-08-09).
+            self._conn.rollback()
+            zeile = self._find_duplicate_row(original_path, source_signature)
+            if zeile is None:
+                raise
+            return zeile
+        self._conn.execute(
+            "UPDATE items SET duplicate_of = ? WHERE id = ?",
+            (original_item.get("id"), item_id),
+        )
+        self._conn.commit()
+        return item_id
 
     def was_routed_unchanged(self, original_path: str, source_signature: str) -> bool:
         """True, wenn genau DIESE Version der Datei bereits erfolgreich geroutet wurde.
@@ -858,17 +1038,19 @@ class Store:
 
     def stats(self) -> dict[str, Any]:
         """Get processing statistics."""
-        total = self._conn.execute("SELECT COUNT(*) FROM items").fetchone()[0]
+        total = self._conn.execute(
+            "SELECT COUNT(*) FROM items WHERE status NOT IN ('failed', 'duplicate')"
+        ).fetchone()[0]
         # Fehlgeschlagene Einträge haben keine Kategorie/Route — sie würden in
         # den Statistiken als leeres Schildchen auftauchen.
         categories = self._conn.execute(
             "SELECT category, COUNT(*) as count FROM items "
-            "WHERE status != 'failed' AND category != '' "
+            "WHERE status NOT IN ('failed', 'duplicate') AND category != '' "
             "GROUP BY category ORDER BY count DESC"
         ).fetchall()
         routes = self._conn.execute(
             "SELECT route_name, COUNT(*) as count FROM items "
-            "WHERE status != 'failed' "
+            "WHERE status NOT IN ('failed', 'duplicate') "
             "GROUP BY route_name ORDER BY count DESC"
         ).fetchall()
         webhook_rows = self._conn.execute(
@@ -899,8 +1081,7 @@ class Store:
         cursor = self._conn.execute(
             """SELECT * FROM items
                WHERE confidence < ?
-               AND status != 'undone'
-               AND status != 'failed'
+               AND status NOT IN ('undone', 'failed', 'duplicate')
                AND route_name != '__review__'
                ORDER BY confidence ASC, created_at DESC
                LIMIT ?""",

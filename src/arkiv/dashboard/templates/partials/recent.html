@@ -19,9 +19,15 @@
         <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div class="min-w-0 flex-1">
                 <div class="mb-2 flex flex-wrap items-center gap-2">
+                    {% if item.status == 'duplicate' %}
+                    <span class="rounded bg-arkiv-800 px-2 py-0.5 text-xs font-medium text-gray-300">
+                        Schon vorhanden
+                    </span>
+                    {% else %}
                     <span class="rounded bg-green-900/40 px-2 py-0.5 text-xs font-medium text-green-300">
                         Erledigt
                     </span>
+                    {% endif %}
                     <span class="rounded bg-arkiv-800 px-2 py-0.5 text-xs font-medium text-arkiv-500">
                         {{ item.category }}
                     </span>
@@ -44,7 +50,12 @@
                     </div>
                 </dl>
                 <p class="mt-3 text-xs text-gray-500">
+                    {% if item.status == 'duplicate' %}
+                    Dieses Dokument liegt schon in der Ablage. Die Datei wurde nicht bewegt —
+                    du kannst sie löschen, wenn du sie nicht mehr brauchst.
+                    {% else %}
                     Wenn das falsch ist: in der Prüfliste bestätigen oder Kategorie korrigieren.
+                    {% endif %}
                 </p>
             </div>
             <div class="text-xs text-gray-500 lg:text-right">

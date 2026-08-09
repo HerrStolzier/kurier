@@ -75,6 +75,18 @@ class Engine:
         except OSError:
             source_signature = None
 
+        # Inhaltsgleiche Datei unter anderem Namen? Dann nicht noch einmal
+        # klassifizieren: Das kostet einen KI-Aufruf und erzeugt eine zweite
+        # Ablage desselben Dokuments. Die Prüfung steht bewusst VOR der
+        # Extraktion — der Fingerabdruck liegt schon vor.
+        duplicate_of = (
+            self.store.find_routed_duplicate(str(file_path), source_signature)
+            if source_signature
+            else None
+        )
+        if duplicate_of is not None:
+            return self._handle_duplicate(file_path, source_signature, duplicate_of)
+
         # Step 1: Extract content. Fehler VOR dem ersten DB-Eintrag würden
         # sonst keine Spur hinterlassen — eine defekte PDF wäre unsichtbar
         # (Plan-Review 2026-08-07, P1). Deshalb: Fehlschlag als Eintrag
@@ -207,6 +219,36 @@ class Engine:
             logger.warning("Embedding failed for %s (non-fatal): %s", file_path.name, exc)
 
         return result
+
+    def _handle_duplicate(
+        self,
+        file_path: Path,
+        source_signature: str | None,
+        original: dict[str, Any],
+    ) -> RouteResult:
+        """Inhaltsgleiche Datei festhalten, ohne sie erneut abzulegen.
+
+        Die Datei bleibt liegen, wo sie ist: Sie gehört dem Nutzer, und die
+        Ablage hat das Dokument bereits. Wer sie loswerden will, sieht im
+        Dashboard, welches Original gemeint ist.
+        """
+        titel = (
+            original.get("display_title")
+            or original.get("destination_name")
+            or Path(str(original.get("original_path", ""))).name
+            or "einem früheren Dokument"
+        )
+        try:
+            self.store.record_duplicate(str(file_path), source_signature, original)
+        except Exception:
+            logger.exception("Konnte Duplikat nicht speichern: %s", file_path)
+        logger.info("Duplikat erkannt: %s ist inhaltsgleich mit %s", file_path.name, titel)
+        return RouteResult(
+            route_name="__duplicate__",
+            destination=str(original.get("destination") or ""),
+            success=True,
+            message=f"Inhaltsgleich mit: {titel}",
+        )
 
     def _fail_without_item(
         self,

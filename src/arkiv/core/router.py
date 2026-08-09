@@ -115,6 +115,7 @@ _ROUTE_DISPLAY_NAMES = {
     "__error__": "Fehlgeschlagen",
     "__failed__": "Fehlgeschlagen",
     "__pending__": "In Arbeit",
+    "__duplicate__": "Duplikat",
     "__text__": "Texteingabe",
 }
 

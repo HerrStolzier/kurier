@@ -22,11 +22,14 @@ def already_handled_unchanged(store: Store, path: Path) -> bool:
     Neustart des Watchers sie erneut verarbeiten und den Webhook erneut feuern
     (Cross-Model-Review 2026-08-06, P1).
 
-    Zwei Faelle zaehlen als "nicht nochmal anfassen":
+    Drei Faelle zaehlen als "nicht nochmal anfassen":
     1. erfolgreich geroutet und seitdem unveraendert,
     2. Zustellung fehlgeschlagen, aber die Outbox-Zeile ist noch offen — die
        gehoert dem Retry-Pfad. Ohne (2) erzeugte jeder Neustart eine zweite
        Zustellung fuer dasselbe Dokument (Cross-Model-Review 2026-08-07, P1).
+    3. schon als Duplikat vermerkt — die Datei bleibt bewusst im Eingang
+       liegen, ohne (3) legte jeder Neustart einen weiteren Duplikat-Eintrag an
+       und schickte eine weitere Benachrichtigung (Review 2026-08-09).
 
     Geprueft wird ausschliesslich gegen den Inhalts-Fingerabdruck. Zeilen im
     alten Groesse:mtime-Format matchen bewusst NICHT: sie weiterhin zu
@@ -42,6 +45,8 @@ def already_handled_unchanged(store: Store, path: Path) -> bool:
         return False
     path_str = str(path)
     if store.was_routed_unchanged(path_str, signature):
+        return True
+    if store.was_recorded_as_duplicate(path_str, signature):
         return True
     return store.has_open_webhook_delivery(path_str, signature)
 

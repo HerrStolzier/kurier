@@ -26,17 +26,32 @@ def undo(
     store = Store(cfg.database.path)
 
     if item_id is not None:
+        # Auch bei ausdruecklich genannter ID pruefen: ein Duplikat wurde nie
+        # bewegt. Als "undone" markiert wuerde es beim naechsten Startscan
+        # erneut als Duplikat erfasst (Review 2026-08-09).
+        vorschau = store.get_item(item_id)
+        if vorschau is None:
+            console.print(f"[red]Kein Dokument mit ID {item_id} gefunden.[/red]")
+            raise typer.Exit(1)
+        if vorschau.get("status") == "duplicate":
+            console.print(
+                f"[yellow]Eintrag {item_id} ist ein Duplikat[/yellow] — es wurde nie "
+                "abgelegt, es gibt also nichts rückgängig zu machen."
+            )
+            console.print("[dim]Du kannst die Datei einfach löschen.[/dim]")
+            raise typer.Exit(1)
+
         item = store.undo_item(item_id)
         if item is None:
             console.print(f"[red]Kein Dokument mit ID {item_id} gefunden.[/red]")
             raise typer.Exit(1)
         items = [item]
     else:
-        recent = store.get_recent(limit=1)
-        if not recent:
-            console.print("[dim]Keine Einträge vorhanden.[/dim]")
+        letzter = store.get_last_undoable()
+        if letzter is None:
+            console.print("[dim]Kein rückgängig machbares Dokument vorhanden.[/dim]")
             raise typer.Exit(1)
-        item = store.undo_item(recent[0]["id"])
+        item = store.undo_item(letzter["id"])
         if item is None:
             console.print("[red]Das letzte Dokument konnte nicht geladen werden.[/red]")
             raise typer.Exit(1)

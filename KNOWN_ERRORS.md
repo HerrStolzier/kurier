@@ -2,8 +2,8 @@
 
 > **Zweck:** Bekannte Fehler in Kurier mit Symptom, Ursache und Loesung.
 > **Scope:** Ruff-Format-Drift, lokale DB-Zustaende, Webhook-Zustellung, Watcher-Stabilitaetsheuristik.
-> **Suchbegriffe:** ruff, format, drift, database, status, webhook, delivery, watcher, stability, retry, on_modified, failed, fehlgeschlagen, nicht geschafft, friendly_error, outbox, startscan, neustart, doppelte zustellung
-> **Stand:** 2026-08-07
+> **Suchbegriffe:** ruff, format, drift, database, status, webhook, delivery, watcher, stability, retry, on_modified, failed, fehlgeschlagen, nicht geschafft, friendly_error, outbox, startscan, neustart, doppelte zustellung, duplikat, duplicate, inhaltsgleich, kategorie, disabled_categories, toml
+> **Stand:** 2026-08-09
 
 ## Global Ruff Format Drift
 
@@ -129,3 +129,28 @@ Vorgang dem Retry-Pfad und der Startscan laesst die Datei liegen. Ausgenommen
 bleiben rueckgaengig gemachte Items (`status = 'undone'`) und Alt-Zeilen ohne
 Datei-Kennzeichen. Eine geaenderte Datei am selben Pfad ist weiterhin ein neuer
 Vorgang und wird verarbeitet.
+
+## Dasselbe Dokument liegt zweimal in der Ablage
+
+### Symptom
+
+Dieselbe Rechnung, einmal als `scan1.pdf` und einmal als `rechnung_kopie.pdf`,
+landete zweimal im Zielordner (die zweite mit `_1` am Namen) und wurde zweimal
+klassifiziert.
+
+### Ursache
+
+Bis 2026-08-09 verglich Kurier nur Pfad plus Fingerabdruck (`was_routed_unchanged`).
+Derselbe Inhalt unter anderem Namen war damit ein neues Dokument.
+
+### Loesung
+
+`Store.find_routed_duplicate()` sucht vor der Extraktion nach einem bereits
+gerouteten Eintrag mit demselben Inhalts-Fingerabdruck und anderem Pfad. Treffer
+werden als `status='duplicate'` mit `duplicate_of` festgehalten, ohne KI-Aufruf
+und ohne zweite Ablage. Die Datei bleibt liegen, wo sie ist. Duplikate zaehlen
+nicht in die Statistik-Schildchen.
+
+Bekannte Grenze: Zwei inhaltsgleiche Dateien, die im selben Moment von zwei
+Watcher-Threads verarbeitet werden, koennen beide durchlaufen — die Pruefung
+liest nur `status='routed'`. Das ist kein Rueckschritt gegenueber vorher.

@@ -38,6 +38,15 @@ def add(
         console.print(f"[red]Nicht gefunden:[/red] {path}")
         raise typer.Exit(1)
 
+    if result.route_name == "__duplicate__":
+        console.print(f"[yellow]Schon vorhanden.[/yellow] {result.message}")
+        console.print(f"[dim]Quelle:[/dim] {source_label}")
+        console.print(
+            "[dim]Die Datei wurde nicht bewegt. Du kannst sie löschen, "
+            "wenn du sie nicht mehr brauchst.[/dim]"
+        )
+        return
+
     if result.success:
         latest = ctx.engine.store.get_recent(limit=1)
         item = latest[0] if latest else {}
@@ -91,14 +100,21 @@ def watch(
 
     def _ingest_and_discard(p: Path) -> None:
         result = engine.ingest_file(p)
-        if cfg.notifications and result and result.success:
-            from arkiv.notifications import notify
+        if not (cfg.notifications and result and result.success):
+            return
 
-            latest = engine.store.get_recent(limit=1)
-            item = latest[0] if latest else {}
-            category = item.get("category") or display_route(result.route_name)
-            destination = item.get("destination_name") or display_route(result.route_name)
-            notify("Kurier", f"{p.name} erledigt: {category} → {destination}")
+        from arkiv.notifications import notify
+
+        # Ein Duplikat wurde nirgendwo abgelegt — "erledigt: X → Y" waere gelogen.
+        if result.route_name == "__duplicate__":
+            notify("Kurier", f"{p.name}: schon vorhanden, nicht noch einmal abgelegt")
+            return
+
+        latest = engine.store.get_recent(limit=1)
+        item = latest[0] if latest else {}
+        category = item.get("category") or display_route(result.route_name)
+        destination = item.get("destination_name") or display_route(result.route_name)
+        notify("Kurier", f"{p.name} erledigt: {category} → {destination}")
 
     watcher = Watcher(
         cfg.inbox_dir,

@@ -184,6 +184,10 @@ class Auditor:
     ) -> None:
         """Flag items classified with low confidence."""
         for item in items:
+            # Duplikate und Fehlschlaege wurden nie klassifiziert; ihre 0.0
+            # ist kein Klassifikationsproblem (Review 2026-08-09).
+            if item.get("status") in ("duplicate", "failed"):
+                continue
             confidence = item.get("confidence", 0)
             if confidence < threshold and item.get("route_name") != "__review__":
                 report.issues.append(

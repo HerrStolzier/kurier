@@ -333,3 +333,202 @@ def test_neustart_verarbeitet_geaenderte_datei_trotz_offener_zustellung(tmp_path
     source.write_text("Rechnung 42 — korrigierte Fassung")
 
     assert already_handled_unchanged(engine.store, source) is False
+
+
+def test_inhaltsgleiche_datei_unter_anderem_namen_ist_ein_duplikat(tmp_path: Path) -> None:
+    """Dieselbe Rechnung als scan1.pdf und kopie.pdf: das zweite Mal wird nicht
+    noch einmal klassifiziert und nicht noch einmal abgelegt."""
+    routes = {
+        "archiv": {
+            "type": "folder",
+            "path": str(tmp_path / "archiv"),
+            "categories": ["rechnung"],
+            "confidence_threshold": 0.7,
+            "rename": False,
+        }
+    }
+    engine = _make_engine(tmp_path, routes)
+    inhalt = "Rechnung 42 von den Stadtwerken"
+
+    erste = tmp_path / "scan1.txt"
+    erste.write_text(inhalt)
+    assert _ingest(engine, erste).success
+
+    zweite = tmp_path / "kopie.txt"
+    zweite.write_text(inhalt)
+    with patch.object(engine.classifier, "classify") as klassifikation:
+        ergebnis = engine.ingest_file(zweite)
+
+    klassifikation.assert_not_called()  # kein zweiter KI-Aufruf
+    assert ergebnis.route_name == "__duplicate__"
+    assert "Inhaltsgleich mit:" in ergebnis.message
+    assert zweite.exists()  # Datei bleibt liegen, wo sie ist
+
+    eintraege = engine.store.recent(limit=10)
+    duplikat = next(i for i in eintraege if i["status"] == "duplicate")
+    original = next(i for i in eintraege if i["status"] == "routed")
+    assert duplikat["duplicate_of"] == original["id"]
+
+
+def test_unterschiedlicher_inhalt_ist_kein_duplikat(tmp_path: Path) -> None:
+    routes = {
+        "archiv": {
+            "type": "folder",
+            "path": str(tmp_path / "archiv"),
+            "categories": ["rechnung"],
+            "confidence_threshold": 0.7,
+            "rename": False,
+        }
+    }
+    engine = _make_engine(tmp_path, routes)
+
+    a = tmp_path / "a.txt"
+    a.write_text("Rechnung 42")
+    b = tmp_path / "b.txt"
+    b.write_text("Rechnung 43")
+
+    assert _ingest(engine, a).success
+    zweites = _ingest(engine, b)
+
+    assert zweites.route_name != "__duplicate__"
+    assert zweites.success
+
+
+def test_duplikat_zaehlt_nicht_in_die_statistik(tmp_path: Path) -> None:
+    routes = {
+        "archiv": {
+            "type": "folder",
+            "path": str(tmp_path / "archiv"),
+            "categories": ["rechnung"],
+            "confidence_threshold": 0.7,
+            "rename": False,
+        }
+    }
+    engine = _make_engine(tmp_path, routes)
+    inhalt = "Rechnung 42"
+    for name in ("a.txt", "b.txt"):
+        p = tmp_path / name
+        p.write_text(inhalt)
+        _ingest(engine, p)
+
+    stats = engine.store.stats()
+
+    assert stats["categories"].get("rechnung") == 1
+    assert "__duplicate__" not in stats["routes"]
+
+
+def test_fehlgeschlagenes_original_blockiert_keine_neuverarbeitung(tmp_path: Path) -> None:
+    """Nur erfolgreich abgelegte Dokumente zaehlen als Original."""
+    engine = _make_engine(tmp_path, {})
+    a = tmp_path / "leer.txt"
+    a.write_text("   ")
+    engine.ingest_file(a)  # -> failed
+
+    b = tmp_path / "auch_leer.txt"
+    b.write_text("   ")
+    ergebnis = engine.ingest_file(b)
+
+    assert ergebnis.route_name != "__duplicate__"
+
+
+def test_erneuter_scan_legt_kein_zweites_duplikat_an(tmp_path: Path) -> None:
+    """Die Duplikat-Datei bleibt im Eingang liegen. Ohne diese Pruefung legte
+    jeder Watcher-Neustart einen weiteren Eintrag an (Review 2026-08-09)."""
+    from arkiv.application.ingest import already_handled_unchanged
+
+    routes = {
+        "archiv": {
+            "type": "folder",
+            "path": str(tmp_path / "archiv"),
+            "categories": ["rechnung"],
+            "confidence_threshold": 0.7,
+            "rename": False,
+        }
+    }
+    engine = _make_engine(tmp_path, routes)
+    inhalt = "Rechnung 42"
+
+    erste = tmp_path / "original.txt"
+    erste.write_text(inhalt)
+    _ingest(engine, erste)
+
+    kopie = tmp_path / "kopie.txt"
+    kopie.write_text(inhalt)
+    engine.ingest_file(kopie)
+
+    assert already_handled_unchanged(engine.store, kopie) is True
+
+    engine.ingest_file(kopie)  # zweiter Scan
+    duplikate = [i for i in engine.store.recent(limit=20) if i["status"] == "duplicate"]
+    assert len(duplikate) == 1
+
+
+def test_undo_ueberspringt_duplikate(tmp_path: Path) -> None:
+    """Ein Duplikat wurde nie bewegt. Stuende es vorn, liefe undo ins Leere."""
+    routes = {
+        "archiv": {
+            "type": "folder",
+            "path": str(tmp_path / "archiv"),
+            "categories": ["rechnung"],
+            "confidence_threshold": 0.7,
+            "rename": False,
+        }
+    }
+    engine = _make_engine(tmp_path, routes)
+    inhalt = "Rechnung 42"
+    erste = tmp_path / "original.txt"
+    erste.write_text(inhalt)
+    _ingest(engine, erste)
+    kopie = tmp_path / "kopie.txt"
+    kopie.write_text(inhalt)
+    engine.ingest_file(kopie)
+
+    letzter = engine.store.get_last_undoable()
+
+    assert letzter is not None
+    assert letzter["status"] == "routed"
+    assert letzter["destination"]
+
+
+def test_duplikat_erscheint_nicht_in_der_pruefliste(tmp_path: Path) -> None:
+    routes = {
+        "archiv": {
+            "type": "folder",
+            "path": str(tmp_path / "archiv"),
+            "categories": ["rechnung"],
+            "confidence_threshold": 0.7,
+            "rename": False,
+        }
+    }
+    engine = _make_engine(tmp_path, routes)
+    inhalt = "Rechnung 42"
+    for name in ("a.txt", "b.txt"):
+        p = tmp_path / name
+        p.write_text(inhalt)
+        _ingest(engine, p)
+
+    assert engine.store.low_confidence(threshold=0.6) == []
+
+
+def test_duplikat_erhoeht_die_dokumentzahl_nicht(tmp_path: Path) -> None:
+    routes = {
+        "archiv": {
+            "type": "folder",
+            "path": str(tmp_path / "archiv"),
+            "categories": ["rechnung"],
+            "confidence_threshold": 0.7,
+            "rename": False,
+        }
+    }
+    engine = _make_engine(tmp_path, routes)
+    inhalt = "Rechnung 42"
+    erste = tmp_path / "a.txt"
+    erste.write_text(inhalt)
+    _ingest(engine, erste)
+    vorher = engine.store.stats()["total_items"]
+
+    kopie = tmp_path / "b.txt"
+    kopie.write_text(inhalt)
+    engine.ingest_file(kopie)
+
+    assert engine.store.stats()["total_items"] == vorher

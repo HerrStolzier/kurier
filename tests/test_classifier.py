@@ -9,7 +9,7 @@ from arkiv.core.classifier import (
     _build_prompt,
     _postprocess_classification,
 )
-from arkiv.core.config import LLMConfig
+from arkiv.core.config import ArkivConfig, LLMConfig
 
 
 def _mock_completion_response(data: dict) -> MagicMock:
@@ -129,3 +129,78 @@ def test_postprocess_replaces_underscores_in_suggested_filename() -> None:
     result = _postprocess_classification("Teammeeting Projekt Kurier", classification)
 
     assert result.suggested_filename == "Teammeeting Projekt Kurier"
+
+
+def test_disabled_categories_entfernt_eingebaute_kategorie() -> None:
+    cfg = ArkivConfig(disabled_categories=["rechnung"])
+    c = Classifier(cfg.llm, arkiv_config=cfg)
+
+    assert "rechnung" not in c._categories
+    assert "notiz" in c._categories
+
+
+def test_eigene_kategorien_stehen_im_prompt_vor_den_eingebauten() -> None:
+    cfg = ArkivConfig(categories={"gesundheit": "Arzt, Zahnarzt"})
+    c = Classifier(cfg.llm, arkiv_config=cfg)
+
+    reihenfolge = list(c._categories)
+    assert reihenfolge[0] == "gesundheit"
+    assert reihenfolge.index("gesundheit") < reihenfolge.index("rechnung")
+
+
+def test_ueberschriebene_kategorie_behaelt_eigene_beschreibung() -> None:
+    cfg = ArkivConfig(categories={"rechnung": "nur was sonst nirgends passt"})
+    c = Classifier(cfg.llm, arkiv_config=cfg)
+
+    assert c._categories["rechnung"] == "nur was sonst nirgends passt"
+
+
+def test_erfundene_kategorie_landet_in_der_pruefliste() -> None:
+    """Modelle antworten mit Woertern aus dem Dokument, auch wenn die Kategorie
+    gar nicht angeboten wurde. Ungeprueft uebernommen trifft sie keine Route."""
+    cfg = ArkivConfig(disabled_categories=["rechnung"])
+    c = Classifier(cfg.llm, arkiv_config=cfg)
+
+    result = c._reject_unknown_category(
+        Classification(
+            category="rechnung",
+            confidence=0.95,
+            summary="Zahnarztrechnung",
+            tags=[],
+            language="de",
+        )
+    )
+
+    assert result.category == "unknown"
+    assert result.confidence == 0.0
+    assert result.summary == "Zahnarztrechnung"
+
+
+def test_angebotene_kategorie_bleibt_unveraendert() -> None:
+    cfg = ArkivConfig()
+    c = Classifier(cfg.llm, arkiv_config=cfg)
+
+    original = Classification(
+        category="notiz", confidence=0.9, summary="Notiz", tags=[], language="de"
+    )
+
+    assert c._reject_unknown_category(original) is original
+
+
+def test_kategorie_als_liste_landet_ohne_absturz_in_der_pruefliste() -> None:
+    """Modelle liefern manchmal {"category": ["rechnung"]} — eine Liste als
+    dict-Schluessel wuerde TypeError werfen und einen Retry ausloesen."""
+    cfg = ArkivConfig()
+    c = Classifier(cfg.llm, arkiv_config=cfg)
+
+    result = c._reject_unknown_category(
+        Classification(
+            category=["rechnung"],  # type: ignore[arg-type]
+            confidence=0.9,
+            summary="Test",
+            tags=[],
+            language="de",
+        )
+    )
+
+    assert result.category == "unknown"

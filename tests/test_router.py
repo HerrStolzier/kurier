@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from arkiv.core.classifier import Classification
-from arkiv.core.config import RouteConfig
+from arkiv.core.config import ArkivConfig, RouteConfig
 from arkiv.core.router import Router, _build_filename, _unique_destination_path
 from arkiv.db.store import Store
 
@@ -525,3 +525,54 @@ def test_webhook_only_failure_wins_regardless_of_order(tmp_path: Path) -> None:
     assert not result.success
     assert result.route_name == "hook_kaputt"
     assert source.exists()  # Webhooks bewegen keine Dateien
+
+
+def test_unknown_geht_nie_an_eine_wildcard_route(tmp_path: Path) -> None:
+    """Eine Auffangroute mit Schwelle 0.0 wuerde 'unknown' sonst einsammeln und
+    die Datei still ablegen, statt sie in die Pruefliste zu geben."""
+    config = ArkivConfig(
+        database={"path": tmp_path / "t.db"},
+        review_dir=tmp_path / "review",
+        routes={
+            "auffang": {
+                "type": "folder",
+                "path": str(tmp_path / "auffang"),
+                "categories": [],
+                "confidence_threshold": 0.0,
+            }
+        },
+    )
+    router = Router(config.routes, review_dir=config.review_dir)
+
+    unbekannt = Classification(
+        category="unknown", confidence=0.0, summary="", tags=[], language="de"
+    )
+
+    assert router.find_routes(unbekannt) == []
+
+
+def test_eigene_kategorie_unknown_wird_normal_geroutet(tmp_path: Path) -> None:
+    """'unknown' darf als eigene Kategorie konfiguriert sein. Nur der interne
+    Fehlerwert (Sicherheit 0.0) gehoert in die Pruefliste."""
+    config = ArkivConfig(
+        database={"path": tmp_path / "t.db"},
+        review_dir=tmp_path / "review",
+        categories={"unknown": "alles Unsortierte"},
+        routes={
+            "unsortiert": {
+                "type": "folder",
+                "path": str(tmp_path / "unsortiert"),
+                "categories": ["unknown"],
+                "confidence_threshold": 0.5,
+            }
+        },
+    )
+    router = Router(config.routes, review_dir=config.review_dir)
+
+    sicher = Classification(category="unknown", confidence=0.9, summary="", tags=[], language="de")
+    fehlerwert = Classification(
+        category="unknown", confidence=0.0, summary="", tags=[], language="de"
+    )
+
+    assert [name for name, _ in router.find_routes(sicher)] == ["unsortiert"]
+    assert router.find_routes(fehlerwert) == []

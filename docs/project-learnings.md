@@ -16,13 +16,38 @@ Durable learnings from recent `kurier` work. Keep this file for practical caveat
 - Treat the local beta feedback flow as a product-learning system, not telemetry. Signals stay local and should answer practical next-step questions for the 5-day real-use test documented in `docs/anti-failure-plan.md`.
 - Keep router refactors small and behavior-preserving. Webhook payload construction now has one source of truth, and folder/review routing share destination collision handling so route behavior does not drift between normal filing and manual review.
 
+## Klassifikation: eigene Kategorien
+
+- **Ein Kategorie-NAME zieht Treffer an, wenn er wörtlich im Dokument steht.** Solange
+  die eingebaute Kategorie `rechnung` zur Auswahl stand, landete jede Zahnarzt-Rechnung
+  dort statt bei `gesundheit` — das Wort "Rechnung" steht eben groß auf dem Blatt.
+  Beschreibungen umformulieren half nicht, auch nicht mit "use this INSTEAD of rechnung".
+  Erst das Abschalten der Kategorie (`disabled_categories`) plus ein neutraler Name für
+  das Auffangbecken (`sonstiges`) hat es gelöst: 16 von 18 echten Dokumenten richtig
+  statt 4 von 18 (gemessen 2026-08-09, qwen2.5:7b).
+- **Modelle antworten mit Kategorien, die gar nicht angeboten wurden.** Nach dem
+  Abschalten kam `rechnung` weiter zurück — frei erfunden aus dem Dokumenttext.
+  Ungeprüft übernommen trifft so eine Kategorie keine einzige Route, das Dokument
+  verschwindet lautlos. `Classifier._reject_unknown_category()` schickt es jetzt in die
+  Prüfliste. Wer eine Kategorienliste vorgibt, muss die Antwort dagegen validieren.
+- **Die Reihenfolge im Prompt zählt.** Eigene Kategorien stehen jetzt vor den
+  eingebauten; standen die Defaults vorne, gewann die generische Kategorie.
+- **Deutsche Stichwörter in die Beschreibungen aufnehmen**, wenn die Dokumente deutsch
+  sind. "dentist" matcht nicht auf "Zahngesundheit GmbH".
+- **Kategorien gegeneinander abgrenzen, nicht nur beschreiben.** `versicherung` fing
+  eine Motorradhandschuh-Rechnung ab, bis der Satz "NOT for buying goods or gear — a
+  shop selling helmets is fahrzeug" dazukam.
+- Beim Tunen immer gegen **echte Dokumente** messen, nicht gegen erfundene Beispiele:
+  zwei der Testfälle waren gar nicht das, wonach sie aussahen ("Rechnung Rail" ist
+  Railway-Hosting, keine Bahnfahrt).
+
 ## Workflow Gotchas
 
 - Mocked tests can miss real provider and plugin wiring bugs. After touching classification or routing flow, run at least one smoke test against a real provider.
 - `mypy` is strict enough to catch integration details that unit tests may gloss over, especially around subprocess text handling and typed dict shapes.
 - When changing webhook routing, cover both the installed-plugin path and the missing-plugin path. The missing-plugin branch should still enqueue the same versioned payload for retry instead of becoming a logging-only failure.
 - macOS/fsevents delivers ONLY Modified events (never Created) for cloned files — Finder copies and `cp` on APFS set the `is_cloned` flag. A watcher that ignores Modified events for unknown paths silently misses such files until the next restart. Observed live 2026-08-06; the watcher now processes unknown paths on Modified and relies on in-flight lock + signature dedup against double processing.
-- TOML top-level keys (`inbox_dir`, `notifications`, ...) must appear BEFORE the first `[section]` header. Placed after one, they silently become keys of that section and pydantic falls back to defaults — a hand-written test config pointed the watcher at the REAL inbox this way. When smoke-testing with a temp config, assert the loaded `inbox_dir` before starting the watcher.
+- TOML top-level keys (`inbox_dir`, `notifications`, ...) must appear BEFORE the first `[section]` header. Placed after one, they silently become keys of that section and pydantic falls back to defaults — a hand-written test config pointed the watcher at the REAL inbox this way. When smoke-testing with a temp config, assert the loaded `inbox_dir` before starting the watcher. Documenting this was not enough: the REAL user config carried the same defect for months (`inbox_dir`, `review_dir` swallowed by `[database]`), unnoticed because the ignored values happened to equal the defaults. `kurier doctor` now flags it via `ArkivConfig.misplaced_settings()` — prefer a check over a note for silent-fallback traps.
 
 ## Infra / Deploy Notes
 

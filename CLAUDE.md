@@ -124,7 +124,8 @@ plugins/arkiv-webhook/     # First-party plugin: webhook routes (Slack, Discord,
 - **Plugin tests can't run in same pytest invocation** as core tests due to `tests/` package name collision. Use separate `--rootdir`.
 - **Watcher Ollama-Polling**: Wenn Ollama nicht läuft, pollt der Watcher alle 30s statt Dateien blind zu verarbeiten. Nur bei `provider = "ollama"`.
 - **Service Plist-Pfad**: macOS: `~/Library/LaunchAgents/local.kurier.watch.plist`, Logs: `~/Library/Logs/kurier.log`
-- **Custom Categories**: Optional via `[categories]` in config.toml — werden mit Defaults gemerged (Config gewinnt bei Konflikten)
+- **Custom Categories**: Optional via `[categories]` in config.toml — eigene Kategorien stehen im Prompt VOR den Defaults (Reihenfolge beeinflusst die Modellwahl), Config gewinnt bei Konflikten. Eingebaute Kategorien lassen sich per `disabled_categories = [...]` abschalten — nötig, weil ein Kategorie-Name, der wörtlich im Dokument steht, Treffer an sich zieht. Antworten mit nicht angebotener Kategorie landen in der Prüfliste (`_reject_unknown_category`). Details: `docs/project-learnings.md`.
+- **TOML-Falle**: Grundeinstellungen (`inbox_dir`, `review_dir`, `disabled_categories`, `notifications`) müssen VOR der ersten `[tabelle]` stehen, sonst schluckt sie die zuletzt geöffnete Tabelle und Kurier nutzt stillschweigend Defaults. `kurier doctor` warnt via `ArkivConfig.misplaced_settings()`.
 
 ## Config
 

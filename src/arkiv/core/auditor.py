@@ -264,7 +264,10 @@ class Auditor:
         try:
             from arkiv.core.classifier import Classifier
 
-            classifier = Classifier(self.config.llm)
+            # Volle Config durchreichen: Ohne sie kennt die Selbstpruefung weder
+            # eigene Kategorien noch disabled_categories und meldet korrekt
+            # abgelegte Dokumente als falsch eingeordnet (Review 2026-08-09).
+            classifier = Classifier(self.config.llm, arkiv_config=self.config)
         except Exception as e:
             logger.debug("Cannot re-classify (LLM unavailable): %s", e)
             return

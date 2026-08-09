@@ -6,7 +6,7 @@ import json
 import logging
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from arkiv.core.config import ArkivConfig, LLMConfig
@@ -30,8 +30,10 @@ You are a strict document classifier. Read the content carefully and classify it
 into exactly ONE of these categories:
 
 {category_lines}
-Choose the MOST SPECIFIC category. An invoice is "rechnung", not "vertrag".
-A tutorial is "artikel", not "code" (even if it contains code examples).
+Choose the MOST SPECIFIC category. When several categories fit, prefer the one that
+describes WHAT THE DOCUMENT IS ABOUT over the one that only describes what KIND of
+document it is: a dentist's bill belongs to the health category, not to the generic
+invoice category. A tutorial stays a tutorial even if it contains code examples.
 
 Return ONLY a JSON object (no other text, no markdown):
 {{"category": "...", "confidence": <float 0.0-1.0, 0.5=ambiguous, 0.9+=certain>, \
@@ -201,10 +203,20 @@ class Classifier:
         self._retries: int = arkiv_config.classifier_retries if arkiv_config is not None else 3
         self._timeout: int = arkiv_config.classifier_timeout if arkiv_config is not None else 30
 
-        # Merge categories: defaults first, config overrides
-        merged: dict[str, str] = dict(DEFAULT_CATEGORIES)
+        # Eigene Kategorien zuerst, Defaults fuellen nur auf. Die Reihenfolge
+        # landet so im Prompt — und ein Modell greift bevorzugt zu dem, was
+        # oben steht. Standen die Defaults vorne, gewann die generische
+        # "rechnung" gegen jede eigene Themen-Kategorie (gemessen 2026-08-09:
+        # 3 von 8 echten Dokumenten richtig). Eine ueberschriebene
+        # Default-Kategorie behaelt dabei die eigene Beschreibung.
+        merged: dict[str, str] = {}
         if arkiv_config is not None and arkiv_config.categories:
             merged.update(arkiv_config.categories)
+        for key, desc in DEFAULT_CATEGORIES.items():
+            merged.setdefault(key, desc)
+        if arkiv_config is not None and arkiv_config.disabled_categories:
+            for key in arkiv_config.disabled_categories:
+                merged.pop(key, None)
         self._categories: dict[str, str] = merged
 
         # LiteLLM requires "ollama_chat/" prefix for Ollama models.
@@ -224,6 +236,33 @@ class Classifier:
                 config.provider,
             )
             Classifier._cloud_warning_shown = True
+
+    def _reject_unknown_category(self, result: Classification) -> Classification:
+        """Antworten mit einer nicht angebotenen Kategorie verwerfen.
+
+        Modelle erfinden Kategorien, die im Dokument als Wort vorkommen: Steht
+        "Rechnung" gross auf dem Blatt, antworten sie "rechnung" — auch wenn die
+        Kategorie gar nicht zur Auswahl stand (gemessen 2026-08-09 mit
+        qwen2.5:7b). Ungeprueft uebernommen landet so eine Halluzination als
+        echte Kategorie in der Ablage und trifft keine einzige Route. Statt
+        still falsch abzulegen, geht das Dokument in die Pruefliste.
+        """
+        # Typpruefung zuerst: Ein Modell kann {"category": ["rechnung"]} liefern.
+        # Eine Liste als dict-Schluessel wirft TypeError, der Aufruf landete dann
+        # im allgemeinen Fehlerpfad und wuerde samt Wartezeit wiederholt, statt
+        # direkt in die Pruefliste zu gehen (Review 2026-08-09).
+        if isinstance(result.category, str) and result.category in self._categories:
+            return result
+        logger.warning(
+            "Modell antwortete mit unbekannter Kategorie %r — ab in die Prüfliste",
+            result.category,
+        )
+        return replace(
+            result,
+            category="unknown",
+            confidence=0.0,
+            summary=result.summary or f"Unbekannte Kategorie: {result.category}",
+        )
 
     def classify(self, content: str, max_chars: int = 4000) -> Classification:
         """Classify text content and return structured result."""
@@ -255,7 +294,9 @@ class Classifier:
                     raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
 
                 data = json.loads(raw)
-                return _postprocess_classification(truncated, Classification.from_dict(data))
+                result = Classification.from_dict(data)
+                result = self._reject_unknown_category(result)
+                return _postprocess_classification(truncated, result)
 
             except json.JSONDecodeError as e:
                 logger.warning("Failed to parse LLM response as JSON: %s", e)

@@ -151,6 +151,16 @@ class Router:
 
     def find_routes(self, classification: Classification) -> list[tuple[str, RouteConfig]]:
         """Find ALL matching routes for a classification (supports fan-out)."""
+        # Der interne Fehlerwert ("unknown" MIT Sicherheit 0.0) heisst: Es gibt
+        # kein Ergebnis, dem man trauen koennte. Eine Wildcard-Route mit
+        # Schwelle 0.0 wuerde ihn trotzdem einsammeln und die Datei still
+        # ablegen — genau das soll die Pruefliste verhindern.
+        # Bewusst an die 0.0 gebunden: "unknown" darf als eigene Kategorie
+        # konfiguriert sein, dann greifen ihre Routen ganz normal
+        # (Review 2026-08-09).
+        if classification.category == "unknown" and classification.confidence == 0.0:
+            return []
+
         matches = []
         for name, route in self.routes.items():
             cat_match = (

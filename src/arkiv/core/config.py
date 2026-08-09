@@ -84,6 +84,12 @@ class ArkivConfig(BaseSettings):
 
     log_level: str = "INFO"
     categories: dict[str, str] | None = None
+    # Eingebaute Kategorien, die NICHT angeboten werden sollen. Noetig, weil ein
+    # Kategorie-Name, der woertlich im Dokument vorkommt, Treffer an sich zieht:
+    # Solange "rechnung" zur Auswahl stand, landete jede Zahnarzt-Rechnung dort
+    # statt bei "gesundheit" — auch mit gegenteiliger Beschreibung (gemessen
+    # 2026-08-09). Abschalten wirkt, Umformulieren nicht.
+    disabled_categories: list[str] = Field(default_factory=list)
     watch_max_concurrent: int = 3
     classifier_retries: int = 3
     classifier_timeout: int = 30
@@ -100,6 +106,53 @@ class ArkivConfig(BaseSettings):
             return cls(**data)
 
         return cls()
+
+    @staticmethod
+    def misplaced_settings(config_path: Path | None = None) -> list[tuple[str, str]]:
+        """Einstellungen finden, die versehentlich in einer Tabelle stehen.
+
+        TOML ordnet jede Zeile der zuletzt geoeffneten `[tabelle]` zu. Wer
+        `inbox_dir` unter `[database]` schreibt, meint eine Grundeinstellung —
+        bekommt aber `database.inbox_dir`, das niemand liest. Kurier arbeitet
+        dann still mit Standardwerten weiter. Genau so lagen `inbox_dir`,
+        `review_dir` und `disabled_categories` monatelang wirkungslos in einer
+        echten Konfiguration (gefunden 2026-08-09).
+
+        Liefert Paare (Einstellung, Tabelle in der sie faelschlich steckt).
+        """
+        path = config_path or DEFAULT_CONFIG_FILE
+        if not path.exists():
+            return []
+        try:
+            with open(path, "rb") as f:
+                data: dict[str, Any] = tomllib.load(f)
+        except Exception:
+            return []
+
+        top_level = {
+            name
+            for name, field in ArkivConfig.model_fields.items()
+            if name not in ("llm", "embeddings", "database", "audit", "routes", "categories")
+        }
+        found: list[tuple[str, str]] = []
+        for table_name, table in data.items():
+            if not isinstance(table, dict):
+                continue
+            if table_name == "routes":
+                # Unter [routes] sind die Namen frei gewaehlt — nicht die Namen
+                # pruefen, wohl aber die Schluessel INNERHALB jeder Route: auch
+                # dort verschluckt die Tabelle eine Grundeinstellung.
+                for route_name, route in table.items():
+                    if not isinstance(route, dict):
+                        continue
+                    for key in route:
+                        if key in top_level:
+                            found.append((key, f"routes.{route_name}"))
+                continue
+            for key in table:
+                if key in top_level:
+                    found.append((key, table_name))
+        return found
 
     def ensure_dirs(self) -> None:
         """Create required directories with restrictive permissions."""

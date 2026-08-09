@@ -69,6 +69,17 @@ def doctor(
                 tomllib.load(f)
             ok("Einstellungen", str(config_path))
             cfg_valid = True
+
+            misplaced = ArkivConfig.misplaced_settings(config_path)
+            if misplaced:
+                # Eckige Klammern escapen: Rich liest sie sonst als Markup-Tag
+                # und schluckt den Tabellennamen ("steckt in )").
+                names = ", ".join(rf"{key} (steckt in \[{table}])" for key, table in misplaced)
+                warn(
+                    "Einstellungen an falscher Stelle",
+                    f"{names}. Diese Zeilen wirken nicht — verschiebe sie in der "
+                    r"Datei ganz nach oben, noch vor die erste \[Abschnitts-Zeile].",
+                )
         except Exception as e:
             fail("Einstellungen", f"Die Datei ist nicht lesbar: {e}")
             cfg_valid = False

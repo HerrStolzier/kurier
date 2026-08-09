@@ -189,7 +189,7 @@
                     refreshBtn.setAttribute('hx-get', '/dashboard/partials/failed');
                     refreshBtn.setAttribute('hx-target', '#failed-items');
                 } else {
-                    refreshBtn.setAttribute('hx-get', '/dashboard/partials/recent');
+                    refreshBtn.setAttribute('hx-get', aktuelleRecentUrl());
                     refreshBtn.setAttribute('hx-target', '#recent-items');
                 }
                 htmx.process(refreshBtn);
@@ -201,6 +201,49 @@
         });
     }
 </script>
+
+<!-- Filter nach Dokumentart -->
+<script>
+    // Der Filter lebt im hx-get des Containers, nicht in einer Variablen:
+    // die Liste laedt sich alle 5s selbst neu und wuerde den Filter sonst
+    // jedes Mal verwerfen.
+    function filterKategorie(kategorie) {
+        const container = document.getElementById('recent-items');
+        const url = kategorie
+            ? '/dashboard/partials/recent?category=' + encodeURIComponent(kategorie)
+            : '/dashboard/partials/recent';
+        container.setAttribute('hx-get', url);
+        htmx.process(container);
+
+        const refreshBtn = document.getElementById('tab-refresh-btn');
+        if (refreshBtn && !document.getElementById('tab-recent').classList.contains('hidden')) {
+            refreshBtn.setAttribute('hx-get', url);
+            htmx.process(refreshBtn);
+        }
+
+        switchTab('recent');
+        htmx.ajax('GET', url, {target: '#recent-items', swap: 'innerHTML'});
+    }
+
+    // Delegiert am document, weil stats/recent per HTMX ausgetauscht werden —
+    // direkt gebundene Listener waeren nach dem naechsten Refresh weg.
+    // Der Kategoriename steht in einem data-Attribut statt in einem
+    // onclick-String: Namen sind frei korrigierbar, und ein Apostroph darin
+    // wuerde aus dem JS-String ausbrechen (Review 2026-08-09).
+    document.addEventListener('click', function (event) {
+        const btn = event.target.closest('.js-kategorie-filter');
+        if (btn) {
+            filterKategorie(btn.dataset.kategorie || '');
+        }
+    });
+
+    // Beim Tab-Wechsel den aktiven Filter beibehalten
+    function aktuelleRecentUrl() {
+        const container = document.getElementById('recent-items');
+        return container ? container.getAttribute('hx-get') : '/dashboard/partials/recent';
+    }
+</script>
+
 
 <!-- Drag-and-drop JS -->
 <script>

@@ -12,9 +12,11 @@ def get_status(ctx: AppContext) -> dict[str, Any]:
     return ctx.engine.stats()
 
 
-def get_recent_items(ctx: AppContext, *, limit: int = 20) -> list[dict[str, Any]]:
-    """Return recent items for UI/API surfaces."""
-    return ctx.engine.store.recent(limit=limit)
+def get_recent_items(
+    ctx: AppContext, *, limit: int = 20, category: str | None = None
+) -> list[dict[str, Any]]:
+    """Return recent items for UI/API surfaces, optionally filtered by category."""
+    return ctx.engine.store.recent(limit=limit, category=category)
 
 
 def get_failed_items(ctx: AppContext, *, limit: int = 20) -> list[dict[str, Any]]:

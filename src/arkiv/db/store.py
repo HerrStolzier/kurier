@@ -605,16 +605,23 @@ class Store:
                 results.append(d)
         return results
 
-    def recent(self, limit: int = 20) -> list[dict[str, Any]]:
-        """Get most recently processed items.
+    def recent(self, limit: int = 20, category: str | None = None) -> list[dict[str, Any]]:
+        """Get most recently processed items, optionally filtered by category.
 
         Fehlgeschlagene Einträge haben ihre eigene Liste (get_failed_items) —
         in "Zuletzt erledigt" wären sie als 'Erledigt' beschriftet und falsch.
         """
-        cursor = self._conn.execute(
-            "SELECT * FROM items WHERE status != 'failed' ORDER BY created_at DESC LIMIT ?",
-            (limit,),
-        )
+        if category:
+            cursor = self._conn.execute(
+                "SELECT * FROM items WHERE status != 'failed' AND category = ? "
+                "ORDER BY created_at DESC LIMIT ?",
+                (category, limit),
+            )
+        else:
+            cursor = self._conn.execute(
+                "SELECT * FROM items WHERE status != 'failed' ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            )
         return [dict(row) for row in cursor.fetchall()]
 
     def update_status(self, item_id: int, status: str) -> None:

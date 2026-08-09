@@ -110,16 +110,17 @@ async def search_partial(
 
 
 @router.get("/partials/recent", response_class=HTMLResponse)
-async def recent_partial() -> HTMLResponse:
-    """Recent items table partial (loaded via HTMX)."""
+async def recent_partial(category: Annotated[str, Query()] = "") -> HTMLResponse:
+    """Recent items table partial (loaded via HTMX), optionally filtered."""
     from arkiv.inlets.api import _get_context
 
     ctx = _get_context()
-    items = get_recent_items(ctx, limit=30)
+    selected = category.strip()
+    items = get_recent_items(ctx, limit=30, category=selected or None)
     for item in items:
         original_path = item.get("original_path") or ""
         item["source_name"] = Path(str(original_path).replace("text://", "")).name or original_path
-    return _render("partials/recent.html", items=items)
+    return _render("partials/recent.html", items=items, category=selected)
 
 
 @router.get("/partials/failed", response_class=HTMLResponse)

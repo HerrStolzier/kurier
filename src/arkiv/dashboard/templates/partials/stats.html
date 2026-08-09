@@ -47,13 +47,16 @@
 {% endif %} {% if stats.categories %}
 <div class="mt-4 flex flex-wrap gap-2">
   {% for cat, count in stats.categories.items() %}
-  <span
-    class="inline-flex items-center gap-1.5 bg-arkiv-800 text-gray-300 text-sm px-3 py-1 rounded-full"
+  <button
+    type="button"
+    data-kategorie="{{ cat }}"
+    title="Nur {{ cat }} anzeigen"
+    class="js-kategorie-filter inline-flex items-center gap-1.5 bg-arkiv-800 text-gray-300 text-sm px-3 py-1 rounded-full hover:bg-arkiv-700 hover:text-white transition cursor-pointer"
   >
     <span class="w-2 h-2 rounded-full bg-arkiv-500"></span>
     {{ cat }}
     <span class="text-gray-500">{{ count }}</span>
-  </span>
+  </button>
   {% endfor %}
 </div>
 {% endif %}

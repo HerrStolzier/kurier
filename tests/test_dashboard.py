@@ -326,3 +326,106 @@ def test_dashboard_hat_failed_tab_und_footer(client: TestClient) -> None:
     assert "Für Fortgeschrittene" in resp.text
     # Header ist aufgeraeumt: API-Doku nur noch im Footer
     assert resp.text.count("API-Doku") == 1
+
+
+def test_recent_partial_filtert_nach_kategorie(client: TestClient) -> None:
+    from arkiv.inlets.api import _get_context
+
+    store = _get_context().engine.store
+    for kategorie, titel in [("gesundheit", "Zahnarzt Mai"), ("wohnen", "Nebenkosten 2025")]:
+        store.record_item(
+            original_path=f"/tmp/{titel}.pdf",
+            destination=f"/tmp/ziel/{titel}.pdf",
+            category=kategorie,
+            confidence=0.9,
+            summary=f"Beleg {titel}",
+            tags=[],
+            language="de",
+            route_name=kategorie,
+        )
+
+    alle = client.get("/dashboard/partials/recent")
+    assert "Zahnarzt Mai" in alle.text
+    assert "Nebenkosten 2025" in alle.text
+
+    gefiltert = client.get("/dashboard/partials/recent?category=gesundheit")
+    assert gefiltert.status_code == 200
+    assert "Zahnarzt Mai" in gefiltert.text
+    assert "Nebenkosten 2025" not in gefiltert.text
+    assert "Gefiltert nach Dokumentart" in gefiltert.text
+    assert "Filter entfernen" in gefiltert.text
+
+
+def test_recent_partial_leerer_filter_zeigt_alles(client: TestClient) -> None:
+    from arkiv.inlets.api import _get_context
+
+    _get_context().engine.store.record_item(
+        original_path="/tmp/a.pdf",
+        destination="/tmp/ziel/a.pdf",
+        category="notiz",
+        confidence=0.9,
+        summary="Eine Notiz",
+        tags=[],
+        language="de",
+        route_name="notizen",
+    )
+
+    resp = client.get("/dashboard/partials/recent?category=")
+    assert "Eine Notiz" in resp.text
+    assert "Gefiltert nach Dokumentart" not in resp.text
+
+
+def test_recent_partial_unbekannte_kategorie_erklaert_die_leere(client: TestClient) -> None:
+    resp = client.get("/dashboard/partials/recent?category=gibtsnicht")
+    assert resp.status_code == 200
+    assert "Keine Dokumente der Art" in resp.text
+
+
+def test_kategorie_schildchen_sind_klickbar(client: TestClient) -> None:
+    from arkiv.inlets.api import _get_context
+
+    _get_context().engine.store.record_item(
+        original_path="/tmp/a.pdf",
+        destination="/tmp/ziel/a.pdf",
+        category="gesundheit",
+        confidence=0.9,
+        summary="Beleg",
+        tags=[],
+        language="de",
+        route_name="gesundheit",
+    )
+
+    resp = client.get("/dashboard/partials/stats")
+    assert 'data-kategorie="gesundheit"' in resp.text
+    assert "js-kategorie-filter" in resp.text
+    assert "Nur gesundheit anzeigen" in resp.text
+
+
+def test_kategoriename_mit_apostroph_bricht_nicht_aus_dem_javascript(
+    client: TestClient,
+) -> None:
+    """Kategorien sind über die Prüfliste frei korrigierbar. Ein Name mit
+    Apostroph darf keinen ausführbaren Code erzeugen (Review 2026-08-09)."""
+    from arkiv.inlets.api import _get_context
+
+    boesartig = "x');alert(1);//"
+    _get_context().engine.store.record_item(
+        original_path="/tmp/a.pdf",
+        destination="/tmp/ziel/a.pdf",
+        category=boesartig,
+        confidence=0.9,
+        summary="Beleg",
+        tags=[],
+        language="de",
+        route_name="archiv",
+    )
+
+    resp = client.get("/dashboard/partials/stats")
+
+    assert resp.status_code == 200
+    # Der Name darf als Datenwert vorkommen — aber niemals in einem
+    # Script-Kontext, und das Apostroph muss escaped sein, damit es das
+    # Attribut nicht verlassen kann.
+    assert "onclick" not in resp.text
+    assert "filterKategorie(" not in resp.text
+    assert 'data-kategorie="x&#39;);alert(1);//"' in resp.text

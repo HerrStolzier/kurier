@@ -56,6 +56,17 @@ Durable learnings from recent `kurier` work. Keep this file for practical caveat
   fehlgeschlagene Webhook-Zustellungen, die wie ein Kurier-Bug aussehen. Vor jeder
   Ursachensuche denselben Request mit beiden Pythons testen (nachgewiesen 2026-08-09).
 
+- **Ein uebersprungener Scan sieht aus wie eine leere Datei — und wird nach dem Dateinamen
+  einsortiert.** Bei Seiten ueber `MAX_OCR_PIXELS` gab die OCR frueher ganz auf. Der Engine
+  fiel dann auf einen Metadaten-Text zurueck (Dateiname, MIME, Groesse), das Modell sah
+  praktisch nur den Namen und meldete trotzdem 90 % Sicherheit. Weil der Dateiname selbst
+  aus einer solchen Vermutung stammt, bestaetigt sich der Fehler mit jedem Durchlauf: Ein
+  Minijob-Arbeitsvertrag hiess "RechnungDienstleistungen.pdf" und galt deshalb als Rechnung
+  (gefunden 2026-08-09, 8 von 20 Dokumenten betroffen). Zwei Konsequenzen: OCR rechnet grosse
+  Seiten jetzt herunter (`_fitting_ocr_dpi`, bis `MIN_OCR_DPI`), und wenn wirklich nur
+  Metadaten vorliegen, deckelt `Engine._mark_as_guess` die Sicherheit — das Dokument landet
+  in der Pruefliste statt still in einem Ordner.
+
 ## Infra / Deploy Notes
 
 - GitHub Actions should use the same editable install path as local development so CI and README do not drift apart.

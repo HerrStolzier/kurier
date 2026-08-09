@@ -7,6 +7,7 @@ Fall back to Tesseract OCR only when native extraction yields little text.
 from __future__ import annotations
 
 import logging
+import math
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,12 @@ PDF_OCR_DPI = 300
 MAX_PDF_PAGES = 50
 MAX_OCR_PAGES = 10
 MAX_OCR_PIXELS = 25_000_000
+# Unter dieser Aufloesung liefert Tesseract auf Scans keine brauchbaren Woerter
+# mehr. Grosse Seiten werden bis hierhin heruntergerechnet, statt sie ganz zu
+# ueberspringen — ein uebersprungener Scan sah fuer die Klassifikation aus wie
+# eine leere Datei und wurde allein nach dem Dateinamen einsortiert
+# (gefunden 2026-08-09 an einem Minijob-Vertrag, der als Rechnung galt).
+MIN_OCR_DPI = 150
 
 # Supported file extensions
 PDF_EXTENSIONS = {".pdf"}
@@ -102,17 +109,22 @@ def _ocr_pdf_page(page: Any, languages: str) -> str | None:
     except ImportError:
         return None
 
-    width, height, pixels = _rendered_page_size(page, PDF_OCR_DPI)
-    if pixels > MAX_OCR_PIXELS:
+    dpi = _fitting_ocr_dpi(page)
+    if dpi is None:
+        width, height, pixels = _rendered_page_size(page, MIN_OCR_DPI)
         logger.warning(
-            "Skipping OCR for oversized PDF page: %dx%d pixels exceeds %d",
+            "Seite auch bei %d DPI zu gross fuer OCR (%dx%d = %d Pixel, Grenze %d)",
+            MIN_OCR_DPI,
             width,
             height,
+            pixels,
             MAX_OCR_PIXELS,
         )
         return None
+    if dpi < PDF_OCR_DPI:
+        logger.info("Grosse Seite: OCR mit %d statt %d DPI", dpi, PDF_OCR_DPI)
 
-    pix = page.get_pixmap(dpi=PDF_OCR_DPI)
+    pix = page.get_pixmap(dpi=dpi)
     img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
 
     try:
@@ -121,6 +133,24 @@ def _ocr_pdf_page(page: Any, languages: str) -> str | None:
     except Exception as e:
         logger.warning("OCR failed for page: %s", e)
         return None
+
+
+def _fitting_ocr_dpi(page: Any) -> int | None:
+    """Hoechste Aufloesung <= PDF_OCR_DPI, bei der die Seite unter die Pixelgrenze passt.
+
+    Gibt None zurueck, wenn selbst MIN_OCR_DPI nicht reicht. Die Pixelzahl waechst
+    quadratisch mit der Aufloesung, deshalb reicht ein Rechenschritt statt einer
+    Schleife.
+    """
+    _, _, pixels = _rendered_page_size(page, PDF_OCR_DPI)
+    if pixels <= MAX_OCR_PIXELS:
+        return PDF_OCR_DPI
+
+    dpi = int(PDF_OCR_DPI * math.sqrt(MAX_OCR_PIXELS / pixels))
+    # Abrunden statt runden: ein Pixel zu viel waere wieder ueber der Grenze.
+    while dpi >= MIN_OCR_DPI and _rendered_page_size(page, dpi)[2] > MAX_OCR_PIXELS:
+        dpi -= 1
+    return dpi if dpi >= MIN_OCR_DPI else None
 
 
 def _rendered_page_size(page: Any, dpi: int) -> tuple[int, int, int]:

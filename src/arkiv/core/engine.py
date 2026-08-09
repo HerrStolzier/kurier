@@ -19,6 +19,29 @@ from arkiv.plugins.manager import PluginManager
 logger = logging.getLogger(__name__)
 
 
+# Kennung fuer "kein echter Dateiinhalt, nur Metadaten". Steht in der ersten
+# Zeile des Ersatztextes und wird vor der Klassifikation wieder entfernt.
+_METADATA_FALLBACK_MARKER = "[kein-lesbarer-text]"
+
+# Obergrenze fuer die Sicherheit, wenn nur Metadaten vorlagen. Liegt unter dem
+# niedrigsten Routen-Schwellenwert der Standardeinrichtung, damit solche
+# Dokumente in der Pruefliste landen statt still einsortiert zu werden.
+_METADATA_FALLBACK_MAX_CONFIDENCE = 0.2
+
+
+def _is_metadata_fallback(content: str) -> bool:
+    """True, wenn der Text nur der Metadaten-Notbehelf ist."""
+    return content.startswith(_METADATA_FALLBACK_MARKER)
+
+
+def _strip_fallback_marker(content: str) -> str:
+    """Kennung entfernen — das Modell soll sie nicht als Inhalt lesen."""
+    if not _is_metadata_fallback(content):
+        return content
+    _, _, rest = content.partition("\n")
+    return rest
+
+
 def _normalize_search_text(value: str) -> str:
     return " ".join(value.casefold().split())
 
@@ -108,6 +131,12 @@ class Engine:
                 "Die Datei ist leer oder enthält keinen lesbaren Text.",
             )
 
+        # Nur Metadaten lesbar? Dann sieht das Modell praktisch nur den
+        # Dateinamen. Die Kennung fliegt vor der Klassifikation raus, das
+        # Ergebnis wird danach als unsicher markiert.
+        nur_metadaten = _is_metadata_fallback(content)
+        content = _strip_fallback_marker(content)
+
         # Step 2: Let plugins pre-process (pluggy returns list of hook results)
         try:
             hook_results = self.plugin_manager.hook.pre_classify(
@@ -130,6 +159,8 @@ class Engine:
             return self._fail_without_item(
                 file_path, source_signature, friendly_error(exc, self.config.llm.provider)
             )
+        if nur_metadaten:
+            classification = self._mark_as_guess(classification, file_path)
         logger.info(
             "Classified %s → %s (%.2f)",
             file_path.name,
@@ -248,6 +279,33 @@ class Engine:
             destination=str(original.get("destination") or ""),
             success=True,
             message=f"Inhaltsgleich mit: {titel}",
+        )
+
+    def _mark_as_guess(self, classification: Classification, file_path: Path) -> Classification:
+        """Klassifikation ohne lesbaren Inhalt als Vermutung kennzeichnen.
+
+        Ohne das legt Kurier ein Dokument mit 90 % gemeldeter Sicherheit ab,
+        obwohl das Modell nur den Dateinamen gesehen hat. Da der Dateiname bei
+        einem zweiten Durchlauf selbst aus einer solchen Vermutung stammt,
+        bestaetigt sich der Fehler mit jeder Runde (2026-08-09: ein
+        Minijob-Vertrag hiess "RechnungDienstleistungen.pdf" und galt deshalb
+        als Rechnung). Gedeckelte Sicherheit heisst: ab in die Pruefliste.
+        """
+        from dataclasses import replace
+
+        logger.warning(
+            "Kein lesbarer Text in %s — Einordnung beruht nur auf dem Dateinamen",
+            file_path.name,
+        )
+        hinweis = (
+            "Aus dieser Datei liess sich kein Text lesen. "
+            "Die Einordnung ist nur nach dem Dateinamen geraten."
+        )
+        summary = f"{hinweis} Vermutung: {classification.summary}".strip()
+        return replace(
+            classification,
+            confidence=min(classification.confidence, _METADATA_FALLBACK_MAX_CONFIDENCE),
+            summary=summary,
         )
 
     def _fail_without_item(
@@ -522,7 +580,11 @@ class Engine:
             return None
 
     def _extract_content(self, file_path: Path) -> str:
-        """Extract text content from a file."""
+        """Extract text content from a file.
+
+        Reiner Text; ob es sich um echten Dateiinhalt oder nur um den
+        Metadaten-Notbehelf handelt, beantwortet `_is_metadata_fallback`.
+        """
         mime_type, _ = mimetypes.guess_type(str(file_path))
 
         # Plain text files
@@ -552,9 +614,14 @@ class Engine:
                 logger.info("OCR extracted %d chars from %s", len(text), file_path.name)
                 return text[:8000]
 
-        # For binary files, provide metadata as context
+        # Kein lesbarer Text: nur Metadaten als Notbehelf. Das Modell sieht dann
+        # praktisch nur den Dateinamen und raet — bei einer Datei namens
+        # "RechnungDienstleistungen.pdf" kam so 90 % Sicherheit fuer "Rechnung"
+        # heraus, obwohl ein Minijob-Arbeitsvertrag darin stand (2026-08-09).
+        # Der Text traegt deshalb eine Kennung, die ingest_file auswertet.
         stat = file_path.stat()
         return (
+            f"{_METADATA_FALLBACK_MARKER}\n"
             f"File: {file_path.name}\n"
             f"Type: {mime_type or 'unknown'}\n"
             f"Size: {stat.st_size} bytes\n"

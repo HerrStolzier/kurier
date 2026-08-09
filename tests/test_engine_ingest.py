@@ -532,3 +532,58 @@ def test_duplikat_erhoeht_die_dokumentzahl_nicht(tmp_path: Path) -> None:
     engine.ingest_file(kopie)
 
     assert engine.store.stats()["total_items"] == vorher
+
+
+def test_ohne_lesbaren_text_landet_das_dokument_in_der_prueferliste(tmp_path: Path) -> None:
+    """Ein Bild ohne erkennbaren Text darf nicht nach Dateiname einsortiert werden.
+
+    Vorher meldete Kurier 90 % Sicherheit, obwohl das Modell nur den Dateinamen
+    gesehen hatte — ein Minijob-Vertrag namens "RechnungDienstleistungen.pdf"
+    landete so bei den Rechnungen (2026-08-09).
+    """
+    routes = {
+        "archiv": {
+            "type": "folder",
+            "path": str(tmp_path / "archiv"),
+            "categories": ["rechnung"],
+            "confidence_threshold": 0.7,
+            "rename": False,
+        }
+    }
+    engine = _make_engine(tmp_path, routes)
+    source = tmp_path / "RechnungDienstleistungen.pdf"
+    source.write_bytes(b"%PDF-1.4 kein extrahierbarer Text")
+
+    with (
+        patch.object(engine.classifier, "classify", return_value=_classification()),
+        patch.object(engine, "_generate_embedding", return_value=None),
+        patch("arkiv.core.ocr.extract_text", return_value=""),
+    ):
+        engine.ingest_file(source)
+
+    item = engine.store.get_recent(limit=1)[0]
+    assert item["confidence"] <= 0.2
+    assert "kein Text lesen" in item["summary"]
+    assert item["route_name"] == "__review__"
+
+
+def test_echter_text_bleibt_unangetastet(tmp_path: Path) -> None:
+    """Gegenprobe: Bei lesbarem Inhalt bleibt die gemeldete Sicherheit erhalten."""
+    routes = {
+        "archiv": {
+            "type": "folder",
+            "path": str(tmp_path / "archiv"),
+            "categories": ["rechnung"],
+            "confidence_threshold": 0.7,
+            "rename": False,
+        }
+    }
+    engine = _make_engine(tmp_path, routes)
+    source = tmp_path / "rechnung.txt"
+    source.write_text("Rechnung über 42 EUR von den Stadtwerken")
+
+    _ingest(engine, source)
+
+    item = engine.store.get_recent(limit=1)[0]
+    assert item["confidence"] == 0.9
+    assert "kein Text lesen" not in (item["summary"] or "")

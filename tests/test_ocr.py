@@ -72,3 +72,36 @@ def test_ocr_pdf_page_skips_oversized_page_without_rendering() -> None:
 
     assert MAX_OCR_PIXELS < 1_000_000_000
     assert _ocr_pdf_page(Page(), "deu+eng") is None
+
+
+def test_grosse_seite_wird_heruntergerechnet_statt_uebersprungen() -> None:
+    """Eine Seite ueber der Pixelgrenze bekommt eine kleinere Aufloesung.
+
+    Vorher gab die OCR bei solchen Scans auf, der Text war leer und Kurier
+    sortierte allein nach dem Dateinamen ein (2026-08-09).
+    """
+    from arkiv.core.ocr import MAX_OCR_PIXELS, MIN_OCR_DPI, PDF_OCR_DPI, _fitting_ocr_dpi
+
+    class FakeRect:
+        def __init__(self, w: float, h: float) -> None:
+            self.width = w
+            self.height = h
+
+    class FakePage:
+        def __init__(self, w: float, h: float) -> None:
+            self.rect = FakeRect(w, h)
+
+    # Normale A4-Seite: volle Aufloesung
+    assert _fitting_ocr_dpi(FakePage(595, 842)) == PDF_OCR_DPI
+
+    # Ueberformat wie im echten Fall (6091x8612 bei 300 DPI): reduziert, aber nutzbar
+    gross = FakePage(595 * 2.5, 842 * 2.5)
+    dpi = _fitting_ocr_dpi(gross)
+    assert dpi is not None
+    assert MIN_OCR_DPI <= dpi < PDF_OCR_DPI
+    breite = int((gross.rect.width / 72) * dpi)
+    hoehe = int((gross.rect.height / 72) * dpi)
+    assert breite * hoehe <= MAX_OCR_PIXELS
+
+    # Absurd gross: auch bei Mindestaufloesung nicht machbar
+    assert _fitting_ocr_dpi(FakePage(60000, 60000)) is None

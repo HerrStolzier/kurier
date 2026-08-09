@@ -49,6 +49,13 @@ Durable learnings from recent `kurier` work. Keep this file for practical caveat
 - macOS/fsevents delivers ONLY Modified events (never Created) for cloned files — Finder copies and `cp` on APFS set the `is_cloned` flag. A watcher that ignores Modified events for unknown paths silently misses such files until the next restart. Observed live 2026-08-06; the watcher now processes unknown paths on Modified and relies on in-flight lock + signature dedup against double processing.
 - TOML top-level keys (`inbox_dir`, `notifications`, ...) must appear BEFORE the first `[section]` header. Placed after one, they silently become keys of that section and pydantic falls back to defaults — a hand-written test config pointed the watcher at the REAL inbox this way. When smoke-testing with a temp config, assert the loaded `inbox_dir` before starting the watcher. Documenting this was not enough: the REAL user config carried the same defect for months (`inbox_dir`, `review_dir` swallowed by `[database]`), unnoticed because the ignored values happened to equal the defaults. `kurier doctor` now flags it via `ArkivConfig.misplaced_settings()` — prefer a check over a note for silent-fallback traps.
 
+- **macOS-Freigabe "Lokales Netzwerk" gilt pro Python-Binary.** Der per pipx installierte
+  Kurier-Dienst erreicht n8n im Heimnetz problemlos, das Repo-venv (`.venv/bin/python`)
+  bekommt fuer denselben POST "No route to host" (Errno 65) — waehrend `curl` und `ping`
+  aus derselben Shell durchkommen. Wer im Repo-venv Dokumente einliest, erzeugt dadurch
+  fehlgeschlagene Webhook-Zustellungen, die wie ein Kurier-Bug aussehen. Vor jeder
+  Ursachensuche denselben Request mit beiden Pythons testen (nachgewiesen 2026-08-09).
+
 ## Infra / Deploy Notes
 
 - GitHub Actions should use the same editable install path as local development so CI and README do not drift apart.

@@ -24,6 +24,15 @@ class CompletionResponse:
     choices: list[Choice] = field(default_factory=list)
 
 
+def ollama_model_is_available(configured_model: str, installed_models: list[str]) -> bool:
+    """Match exact Ollama names and its implicit ``:latest`` alias."""
+    if configured_model in installed_models:
+        return True
+    if ":" in configured_model:
+        return False
+    return f"{configured_model}:latest" in installed_models
+
+
 def _is_local_ollama(api_base: str | None) -> bool:
     if not api_base:
         return False
@@ -53,6 +62,7 @@ def _call_ollama(
     max_tokens: int,
     timeout: int,
     api_base: str,
+    think: bool | None,
 ) -> CompletionResponse:
     # Strip provider prefix
     for prefix in ("ollama_chat/", "ollama/"):
@@ -67,6 +77,8 @@ def _call_ollama(
         "stream": False,
         "options": {"temperature": temperature, "num_predict": max_tokens},
     }
+    if think is not None:
+        body["think"] = think
     resp = httpx.post(url, json=body, timeout=timeout)
     resp.raise_for_status()
     data = resp.json()
@@ -172,6 +184,7 @@ def completion(
     timeout: int = 30,
     api_base: str | None = None,
     api_key: str | None = None,
+    think: bool | None = None,
 ) -> CompletionResponse:
     """Drop-in-Ersatz für litellm.completion() via direkten HTTP-Calls."""
     provider = _detect_provider(model, api_base)
@@ -179,7 +192,7 @@ def completion(
     try:
         if provider == "ollama":
             base = api_base or "http://localhost:11434"
-            return _call_ollama(model, messages, temperature, max_tokens, timeout, base)
+            return _call_ollama(model, messages, temperature, max_tokens, timeout, base, think)
         if provider == "huggingface":
             return _call_huggingface(
                 model,

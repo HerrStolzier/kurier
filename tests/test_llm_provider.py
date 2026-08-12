@@ -4,7 +4,16 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from arkiv.core.llm import _detect_provider, completion
+from arkiv.core.llm import _detect_provider, completion, ollama_model_is_available
+
+
+def test_ollama_model_availability_accepts_only_the_implicit_latest_alias() -> None:
+    installed = ["qwen3.5:latest", "qwen3.5:9b"]
+
+    assert ollama_model_is_available("qwen3.5", installed) is True
+    assert ollama_model_is_available("qwen3.5:9b", installed) is True
+    assert ollama_model_is_available("qwen3.5:7b", installed) is False
+    assert ollama_model_is_available("qwen3.5", ["qwen3.5:9b"]) is False
 
 
 def test_detect_provider_recognizes_huggingface_prefix() -> None:
@@ -131,6 +140,20 @@ def test_llm_config_default_base_url_is_none() -> None:
     from arkiv.core.config import LLMConfig
 
     assert LLMConfig().base_url is None
+
+
+def test_ollama_forwards_optional_thinking_setting() -> None:
+    response = _mock_response({"message": {"content": "ok"}})
+
+    with patch("arkiv.core.llm.httpx.post", return_value=response) as post:
+        completion(
+            model="ollama_chat/qwen3.5:9b",
+            messages=[{"role": "user", "content": "Hello"}],
+            api_base="http://localhost:11434",
+            think=False,
+        )
+
+    assert post.call_args.kwargs["json"]["think"] is False
 
 
 def _write_cloud_config(tmp_path, provider: str, model: str):

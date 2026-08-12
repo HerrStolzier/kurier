@@ -8,6 +8,7 @@ from pathlib import Path
 import typer
 
 from arkiv.commands.common import DEFAULT_CONFIG_FILE, ArkivConfig, console
+from arkiv.core.llm import ollama_model_is_available
 from arkiv.core.setup_texts import RECOMMENDED_MODEL
 
 
@@ -119,12 +120,13 @@ def init(
     default_config = (
         "# Kurier Einstellungen\n"
         "# https://github.com/HerrStolzier/kurier\n\n"
-        f'[llm]\nprovider = "ollama"\nmodel = "{RECOMMENDED_MODEL}"\n'
-        'base_url = "http://localhost:11434"\ntemperature = 0.1\n\n'
-        '[embeddings]\nmodel = "BAAI/bge-small-en-v1.5"\n\n'
-        '[database]\npath = "~/.local/share/kurier/kurier.db"\n\n'
         f'inbox_dir = "{inbox_dir}"\n'
         f'review_dir = "{review_dir}"\n\n'
+        f'[llm]\nprovider = "ollama"\nmodel = "{RECOMMENDED_MODEL}"\n'
+        'base_url = "http://localhost:11434"\ntemperature = 0.1\n\n'
+        '[explanation]\nenabled = true\nmodel = "qwen3.5:9b"\n\n'
+        '[embeddings]\nmodel = "BAAI/bge-small-en-v1.5"\n\n'
+        '[database]\npath = "~/.local/share/kurier/kurier.db"\n\n'
         '[routes.archiv]\ntype = "folder"\n'
         f'path = "{base_dir}/Archiv"\n'
         'categories = ["rechnung", "vertrag", "brief", "bescheid"]\n'
@@ -208,6 +210,11 @@ def _post_init_checks(config_path: Path) -> None:
             console.print(
                 "[yellow]Noch kein KI-Modell heruntergeladen.[/yellow] "
                 f"Empfehlung: ollama pull {RECOMMENDED_MODEL}"
+            )
+        if not ollama_model_is_available(cfg.explanation.model, models):
+            console.print(
+                "[yellow]Für einfache Vertragserklärungen fehlt noch ein Modell.[/yellow] "
+                f"Installiere es mit: ollama pull {cfg.explanation.model}"
             )
 
         console.print("\n[dim]Teste kurz, ob Kurier ein Beispieldokument versteht...[/dim]")

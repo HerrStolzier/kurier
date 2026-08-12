@@ -28,6 +28,18 @@ class LLMConfig(BaseModel):
     max_tokens: int = 1024
 
 
+class ExplanationConfig(BaseModel):
+    """Settings for the local plain-language document explanation."""
+
+    enabled: bool = False
+    model: str = "qwen3.5:9b"
+    base_url: str = "http://localhost:11434"
+    temperature: float = 0.0
+    max_tokens: int = 900
+    timeout: int = 90
+    max_source_characters: int = 8000
+
+
 class EmbeddingConfig(BaseModel):
     """Embedding model configuration."""
 
@@ -70,6 +82,7 @@ class ArkivConfig(BaseSettings):
     """Root configuration for Kurier."""
 
     llm: LLMConfig = Field(default_factory=LLMConfig)
+    explanation: ExplanationConfig = Field(default_factory=ExplanationConfig)
     embeddings: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     audit: AuditConfig = Field(default_factory=AuditConfig)
@@ -132,7 +145,8 @@ class ArkivConfig(BaseSettings):
         top_level = {
             name
             for name, field in ArkivConfig.model_fields.items()
-            if name not in ("llm", "embeddings", "database", "audit", "routes", "categories")
+            if name
+            not in ("llm", "explanation", "embeddings", "database", "audit", "routes", "categories")
         }
         found: list[tuple[str, str]] = []
         for table_name, table in data.items():

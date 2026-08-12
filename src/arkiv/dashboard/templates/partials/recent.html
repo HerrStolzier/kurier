@@ -57,6 +57,26 @@
                     Wenn das falsch ist: in der Prüfliste bestätigen oder Kategorie korrigieren.
                     {% endif %}
                 </p>
+                {% if item.category == 'vertrag' and item.status != 'duplicate' and item.can_explain and explanation_available %}
+                <div class="mt-4">
+                    <button type="button"
+                            hx-post="/dashboard/partials/documents/{{ item.id }}/explanation"
+                            hx-target="#document-explanation-panel"
+                            hx-sync="#document-explanation-panel:replace"
+                            hx-indicator="#document-explanation-spinner-{{ item.id }}"
+                            class="rounded-lg bg-arkiv-700 px-3 py-2 text-sm font-medium text-white hover:bg-arkiv-600 transition">
+                        Einfach erklären
+                    </button>
+                    <span id="document-explanation-spinner-{{ item.id }}"
+                          class="htmx-indicator ml-2 text-xs text-gray-400">Erklärung wird erstellt...</span>
+                    <p class="mt-2 text-xs text-gray-500">Nur aus diesem Dokument. Keine Rechtsberatung.</p>
+                </div>
+                {% elif item.category == 'vertrag' and item.status != 'duplicate' and item.can_explain and explanation_enabled %}
+                <p class="mt-4 text-xs text-gray-500">
+                    Die einfache Erklärung wird verfügbar, sobald das lokale Erklärmodell bereit ist.
+                    Prüfe dafür Kurier mit <code class="text-arkiv-500">kurier doctor</code>.
+                </p>
+                {% endif %}
             </div>
             <div class="text-xs text-gray-500 lg:text-right">
                 <div>{{ item.created_at[:10] }}</div>

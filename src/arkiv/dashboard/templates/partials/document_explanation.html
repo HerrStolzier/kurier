@@ -1,0 +1,56 @@
+{% if success %}
+<section class="mt-4 rounded-lg border border-arkiv-700 bg-arkiv-900 p-4 text-sm fade-in">
+    <h4 class="font-medium text-white">Einfach erklärt</h4>
+    {% if explanation.source_is_partial %}
+    <div class="mt-3 rounded-lg border border-amber-900/70 bg-amber-950/30 p-3 text-amber-100">
+        Dieses Dokument ist lang. Diese Erklärung nutzt nur seinen Anfang. Wichtige Punkte können weiter hinten stehen.
+    </div>
+    {% endif %}
+    <p class="mt-2 text-gray-200">{{ explanation.overview }}</p>
+    <div class="mt-2 text-xs text-gray-500">
+        <span class="font-medium text-gray-400">Textstelle zum Nachlesen:</span>
+        {% for source in explanation.overview_sources %}
+        <blockquote class="mt-1 border-l-2 border-arkiv-600 pl-2 text-gray-400">{{ source.text }}</blockquote>
+        {% endfor %}
+    </div>
+
+    <div class="mt-4 space-y-3">
+        {% for point in explanation.points %}
+        <article class="rounded-lg border border-arkiv-800 bg-arkiv-950 p-3">
+            <h5 class="font-medium text-white">{{ point.topic }}</h5>
+            <p class="mt-1 text-gray-300">{{ point.explanation }}</p>
+            <div class="mt-2 text-xs text-gray-500">
+                <span class="font-medium text-gray-400">Textstelle zum Nachlesen:</span>
+                {% for source in point.sources %}
+                <blockquote class="mt-1 border-l-2 border-arkiv-600 pl-2 text-gray-400">{{ source.text }}</blockquote>
+                {% endfor %}
+            </div>
+        </article>
+        {% endfor %}
+    </div>
+
+    {% if explanation.open_questions %}
+    <div class="mt-4 rounded-lg border border-amber-900/70 bg-amber-950/30 p-3">
+        <h5 class="font-medium text-amber-200">Das bleibt offen</h5>
+        <ul class="mt-2 space-y-2 text-gray-300">
+            {% for question in explanation.open_questions %}
+            <li>
+                <span>{{ question.question }}</span>
+                {% for source in question.sources %}
+                <blockquote class="mt-1 border-l-2 border-amber-800 pl-2 text-xs text-gray-400">{{ source.text }}</blockquote>
+                {% endfor %}
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    <p class="mt-4 text-xs text-gray-500">
+        Vergleiche die Erklärung mit den Textstellen, bevor du entscheidest. Das ist keine Rechtsberatung.
+    </p>
+</section>
+{% else %}
+<div class="mt-4 rounded-lg border border-amber-900/70 bg-amber-950/30 p-3 text-sm text-amber-100 fade-in">
+    {{ message }}
+</div>
+{% endif %}

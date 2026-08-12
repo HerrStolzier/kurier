@@ -48,6 +48,7 @@ def test_dashboard_loads(client: TestClient) -> None:
     assert "kurier-csrf-token" in resp.text
     assert "Problem melden" in resp.text
     assert 'hx-trigger="load, every 5s"' in resp.text
+    assert 'id="document-explanation-panel"' in resp.text
 
 
 def test_dashboard_static_assets_are_served(client: TestClient) -> None:
@@ -259,6 +260,136 @@ def test_recent_shows_items_after_upload(client: TestClient) -> None:
     assert "A quick note" in resp.text
     assert "notiz" in resp.text
     assert "Kurze Notiz" in resp.text
+
+
+def test_contract_explanation_is_available_on_demand(client: TestClient) -> None:
+    from arkiv.inlets.api import _get_context
+
+    item_id = _get_context().engine.store.record_item(
+        original_path="text://mobilfunkvertrag",
+        destination="",
+        category="vertrag",
+        confidence=0.9,
+        summary="Mobilfunkvertrag",
+        tags=[],
+        language="de",
+        route_name="__text__",
+        content_text="Der Vertrag kostet 29 Euro im Monat.",
+    )
+    _get_context().config.explanation.enabled = True
+    explanation_response = MagicMock()
+    explanation_response.choices = [MagicMock()]
+    explanation_response.choices[0].message.content = json.dumps(
+        {
+            "kurz_gesagt": {
+                "text": "Der Vertrag kostet jeden Monat Geld.",
+                "source_ids": ["S1"],
+            },
+            "punkte": [
+                {
+                    "thema": "Kosten",
+                    "erklaerung": "Du zahlst 29 Euro im Monat.",
+                    "source_ids": ["S1"],
+                }
+            ],
+            "offene_punkte": [],
+        }
+    )
+
+    with patch("arkiv.dashboard.routes.explanation_model_available", return_value=True):
+        recent = client.get("/dashboard/partials/recent")
+    assert "Einfach erklären" in recent.text
+    assert 'hx-target="#document-explanation-panel"' in recent.text
+    assert 'hx-sync="#document-explanation-panel:replace"' in recent.text
+
+    with patch("arkiv.core.explainer.completion", return_value=explanation_response):
+        resp = client.post(
+            f"/dashboard/partials/documents/{item_id}/explanation",
+            headers=_csrf_headers(client),
+        )
+
+    assert resp.status_code == 200
+    assert "Einfach erklärt" in resp.text
+    assert "Du zahlst 29 Euro im Monat." in resp.text
+    assert "Der Vertrag kostet 29 Euro im Monat." in resp.text
+    assert "keine Rechtsberatung" in resp.text
+    assert "Textstelle zum Nachlesen" in resp.text
+
+
+def test_partial_explanation_warns_about_missing_document_end(client: TestClient) -> None:
+    from arkiv.core.explainer import DocumentExplanation, ExplanationPoint, SourceSection
+    from arkiv.inlets.api import _get_context
+
+    item_id = _get_context().engine.store.record_item(
+        original_path="text://vertrag",
+        destination="",
+        category="vertrag",
+        confidence=0.9,
+        summary="Vertrag",
+        tags=[],
+        language="de",
+        route_name="__text__",
+        content_text="Der Vertrag kostet 29 Euro im Monat.",
+    )
+    source = SourceSection(identifier="S1", text="Der Vertrag kostet 29 Euro im Monat.")
+    explanation = DocumentExplanation(
+        overview="Der Vertrag kostet Geld.",
+        overview_sources=[source],
+        points=[ExplanationPoint(topic="Kosten", explanation="29 Euro.", sources=[source])],
+        open_questions=[],
+        source_is_partial=True,
+    )
+
+    with patch("arkiv.dashboard.routes.explain_document", return_value=explanation):
+        resp = client.post(
+            f"/dashboard/partials/documents/{item_id}/explanation",
+            headers=_csrf_headers(client),
+        )
+
+    assert "nutzt nur seinen Anfang" in resp.text
+
+
+def test_contract_explanation_button_is_hidden_when_disabled(client: TestClient) -> None:
+    from arkiv.inlets.api import _get_context
+
+    ctx = _get_context()
+    ctx.config.explanation.enabled = False
+    ctx.engine.store.record_item(
+        original_path="text://vertrag",
+        destination="",
+        category="vertrag",
+        confidence=0.9,
+        summary="Vertrag",
+        tags=[],
+        language="de",
+        route_name="__text__",
+        content_text="Der Vertrag kostet 29 Euro im Monat.",
+    )
+
+    resp = client.get("/dashboard/partials/recent")
+
+    assert "Einfach erklären" not in resp.text
+
+
+def test_contract_explanation_is_hidden_without_stored_text(client: TestClient) -> None:
+    from arkiv.inlets.api import _get_context
+
+    _get_context().engine.store.record_item(
+        original_path="text://vertrag",
+        destination="",
+        category="vertrag",
+        confidence=0.9,
+        summary="Vertrag",
+        tags=[],
+        language="de",
+        route_name="__text__",
+        content_text="",
+    )
+
+    with patch("arkiv.dashboard.routes.explanation_model_available", return_value=True):
+        resp = client.get("/dashboard/partials/recent")
+
+    assert "Einfach erklären" not in resp.text
 
 
 def test_review_correct_confirms_item_and_removes_it_from_queue(

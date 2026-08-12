@@ -35,6 +35,9 @@ pipx install "kurier @ git+https://github.com/HerrStolzier/kurier.git"
 # Lokales KI-Modell vorbereiten
 ollama pull qwen2.5:7b
 
+# Zusätzlich für einfache Vertragserklärungen
+ollama pull qwen3.5:9b
+
 # Einmal einrichten
 kurier init
 
@@ -64,6 +67,10 @@ Dieser Bereich aktualisiert sich automatisch. Du siehst dort Quelle, erkannte Ar
 sprechenden Namen und Ablage. Wenn etwas falsch wirkt, wechselst du in die Pruefliste und
 korrigierst die Kategorie. Auch `kurier status` zeigt das zuletzt erledigte Dokument.
 
+Bei Verträgen und AGB gibt es dort zusätzlich **Einfach erklären**. Kurier liest die lokale Datei
+erst nach deinem Klick, erklärt wichtige Stellen mit dem lokalen Modell Qwen 3.5 und zeigt die
+jeweiligen Textstellen. Die Erklärung ist keine Rechtsberatung.
+
 ### Befehle
 
 Alle wichtigen Funktionen gibt es auch einzeln:
@@ -90,6 +97,12 @@ Kurier speichert seine Einstellungen in `~/.config/kurier/config.toml`:
 provider = "ollama"
 model = "mistral"
 base_url = "http://localhost:11434"
+
+[explanation]
+enabled = true
+model = "qwen3.5:9b"
+# Lokale Erklärung in einfacher Sprache. Bei Bedarf abschalten:
+# enabled = false
 
 [embeddings]
 model = "BAAI/bge-small-en-v1.5"

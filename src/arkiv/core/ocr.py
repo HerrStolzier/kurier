@@ -46,26 +46,35 @@ def extract_text(file_path: Path, languages: str = "deu+eng") -> str | None:
     Returns:
         Extracted text, or None if no OCR libraries are installed
     """
+    text, _ = extract_text_with_status(file_path, languages)
+    return text
+
+
+def extract_text_with_status(
+    file_path: Path, languages: str = "deu+eng"
+) -> tuple[str | None, bool]:
+    """Extract text and report whether any part had to be skipped."""
     suffix = file_path.suffix.lower()
 
     if suffix in PDF_EXTENSIONS:
         return _extract_from_pdf(file_path, languages)
-    elif suffix in IMAGE_EXTENSIONS:
-        return _extract_from_image(file_path, languages)
-    return None
+    if suffix in IMAGE_EXTENSIONS:
+        return _extract_from_image(file_path, languages), False
+    return None, False
 
 
-def _extract_from_pdf(file_path: Path, languages: str) -> str | None:
+def _extract_from_pdf(file_path: Path, languages: str) -> tuple[str | None, bool]:
     """Extract text from PDF — native first, OCR fallback."""
     try:
         import pymupdf
     except ImportError:
         logger.debug("pymupdf not installed, skipping PDF extraction")
-        return None
+        return None, False
 
     doc = pymupdf.open(str(file_path))  # type: ignore[no-untyped-call]
     pages_text: list[str] = []
     ocr_pages = 0
+    is_partial = len(doc) > MAX_PDF_PAGES
 
     try:
         page: Any
@@ -82,6 +91,7 @@ def _extract_from_pdf(file_path: Path, languages: str) -> str | None:
                 if ocr_pages >= MAX_OCR_PAGES:
                     logger.warning("PDF OCR stopped after %d pages", MAX_OCR_PAGES)
                     ocr_text = None
+                    is_partial = True
                 else:
                     ocr_pages += 1
                     ocr_text = _ocr_pdf_page(page, languages)
@@ -89,6 +99,7 @@ def _extract_from_pdf(file_path: Path, languages: str) -> str | None:
                     text = ocr_text
                     logger.debug("Page %d: used OCR (%d chars)", page_num + 1, len(text))
                 else:
+                    is_partial = True
                     logger.debug("Page %d: native extraction (%d chars)", page_num + 1, len(text))
             else:
                 logger.debug("Page %d: native extraction (%d chars)", page_num + 1, len(text))
@@ -98,7 +109,7 @@ def _extract_from_pdf(file_path: Path, languages: str) -> str | None:
     finally:
         doc.close()  # type: ignore[no-untyped-call]
 
-    return "\n\n".join(pages_text) if pages_text else ""
+    return ("\n\n".join(pages_text) if pages_text else ""), is_partial
 
 
 def _ocr_pdf_page(page: Any, languages: str) -> str | None:

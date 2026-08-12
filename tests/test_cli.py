@@ -123,6 +123,10 @@ def test_init_quick_creates_notizen_route_and_next_step(tmp_path: Path, monkeypa
     config_text = config_path.read_text(encoding="utf-8")
     assert "[routes.notizen]" in config_text
     assert 'categories = ["notiz"]' in config_text
+    assert '[explanation]\nenabled = true\nmodel = "qwen3.5:9b"' in config_text
+    config = setup_commands.ArkivConfig.load(config_path)
+    assert config.inbox_dir == tmp_path / "Documents" / "Kurier" / "Eingang"
+    assert config.review_dir == tmp_path / "Documents" / "Kurier" / "Prüfen"
 
 
 def test_service_status_uses_human_readable_labels(tmp_path: Path, monkeypatch) -> None:

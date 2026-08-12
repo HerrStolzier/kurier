@@ -24,9 +24,33 @@ logger = logging.getLogger(__name__)
 # Dokumente in der Pruefliste landen statt still einsortiert zu werden.
 _METADATA_FALLBACK_MAX_CONFIDENCE = 0.2
 
+_TEXT_FILE_EXTENSIONS = {
+    ".md",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".csv",
+    ".tsv",
+    ".log",
+}
+
 
 def _normalize_search_text(value: str) -> str:
     return " ".join(value.casefold().split())
+
+
+def can_extract_document_text(file_path: Path) -> bool:
+    """Return whether Kurier has a text extractor for this file type."""
+    mime_type, _ = mimetypes.guess_type(str(file_path))
+    if mime_type and mime_type.startswith("text/"):
+        return True
+    if file_path.suffix.lower() in _TEXT_FILE_EXTENSIONS:
+        return True
+
+    from arkiv.core.ocr import is_ocr_candidate
+
+    return is_ocr_candidate(file_path)
 
 
 class Engine:
@@ -324,7 +348,17 @@ class Engine:
             language=classification.language,
             route_name="__text__",
             suggested_filename=classification.suggested_filename,
-            content_text=text[:2000] if self.config.database.store_content else "",
+            content_text=(
+                text[
+                    : (
+                        self.config.explanation.max_source_characters + 1
+                        if self.config.explanation.enabled and classification.category == "vertrag"
+                        else 2000
+                    )
+                ]
+                if self.config.database.store_content
+                else ""
+            ),
             embedding=embedding,
         )
 
@@ -336,6 +370,26 @@ class Engine:
                 f"Text classified: {classification.category} ({classification.confidence:.2f})"
             ),
         )
+
+    def extract_document_text(self, file_path: Path) -> tuple[str, bool]:
+        """Read usable text for an on-demand explanation.
+
+        This intentionally re-reads the local file. The database holds only a
+        short search excerpt, while an explanation needs the original text.
+        """
+        from arkiv.core.ocr import extract_text_with_status, is_ocr_candidate
+
+        if is_ocr_candidate(file_path):
+            content, is_partial = extract_text_with_status(file_path)
+            if not content or not content.strip():
+                raise ValueError("Die Datei enthält keinen lesbaren Text.")
+            return content, is_partial
+
+        source_limit = self.config.explanation.max_source_characters
+        content, metadata_only = self._extract_content(file_path, max_characters=source_limit + 1)
+        if metadata_only or not content.strip():
+            raise ValueError("Die Datei enthält keinen lesbaren Text.")
+        return content, len(content) > source_limit
 
     def search(
         self,
@@ -561,7 +615,9 @@ class Engine:
             logger.warning("Embedding generation failed: %s", e)
             return None
 
-    def _extract_content(self, file_path: Path) -> tuple[str, bool]:
+    def _extract_content(
+        self, file_path: Path, max_characters: int | None = 8000
+    ) -> tuple[str, bool]:
         """Text aus einer Datei lesen.
 
         Gibt (text, nur_metadaten) zurueck. `nur_metadaten` ist True, wenn sich
@@ -573,23 +629,20 @@ class Engine:
         """
         mime_type, _ = mimetypes.guess_type(str(file_path))
 
+        def limit_content(value: str) -> str:
+            return value[:max_characters] if max_characters is not None else value
+
+        def read_text_content() -> str:
+            with file_path.open(errors="replace") as source:
+                return source.read(max_characters) if max_characters is not None else source.read()
+
         # Plain text files
         if mime_type and mime_type.startswith("text/"):
-            return file_path.read_text(errors="replace")[:8000], False
+            return read_text_content(), False
 
         # Common text-based formats without proper MIME
-        text_extensions = {
-            ".md",
-            ".json",
-            ".yaml",
-            ".yml",
-            ".toml",
-            ".csv",
-            ".tsv",
-            ".log",
-        }
-        if file_path.suffix.lower() in text_extensions:
-            return file_path.read_text(errors="replace")[:8000], False
+        if file_path.suffix.lower() in _TEXT_FILE_EXTENSIONS:
+            return read_text_content(), False
 
         # Try OCR for PDFs and images
         from arkiv.core.ocr import extract_text, is_ocr_candidate
@@ -598,7 +651,7 @@ class Engine:
             text = extract_text(file_path)
             if text:
                 logger.info("OCR extracted %d chars from %s", len(text), file_path.name)
-                return text[:8000], False
+                return limit_content(text), False
 
         # Kein lesbarer Text: nur Metadaten als Notbehelf. Das Modell sieht dann
         # praktisch nur den Dateinamen und raet — bei einer Datei namens

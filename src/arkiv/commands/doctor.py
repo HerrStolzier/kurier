@@ -12,6 +12,7 @@ from rich.table import Table
 
 from arkiv.commands.common import DEFAULT_CONFIG_FILE, ArkivConfig, console
 from arkiv.core.hardware import detect_ram_gb, model_fits_ram
+from arkiv.core.llm import ollama_model_is_available
 
 
 def _count_visible_inbox_files(inbox_dir: Path) -> int:
@@ -158,8 +159,7 @@ def doctor(
                 with urllib.request.urlopen(f"{ollama_url}/api/tags", timeout=3) as resp:
                     data = json.loads(resp.read())
                     models = [m["name"] for m in data.get("models", [])]
-                model_names_base = [m.split(":")[0] for m in models]
-                if cfg.llm.model in models or cfg.llm.model in model_names_base:
+                if ollama_model_is_available(cfg.llm.model, models):
                     ok("KI-Modell erreichbar", f"{cfg.llm.provider}/{cfg.llm.model}")
                 else:
                     available = ", ".join(models[:3]) or "-"
@@ -182,6 +182,25 @@ def doctor(
                 warn("Arbeitsspeicher passt zum KI-Modell", detail)
         else:
             ok("KI-Modell", f"{cfg.llm.provider} (API-Key über Umgebungsvariable)")
+
+        if cfg.explanation.enabled:
+            explanation_url = cfg.explanation.base_url.rstrip("/")
+            try:
+                with urllib.request.urlopen(f"{explanation_url}/api/tags", timeout=3) as resp:
+                    data = json.loads(resp.read())
+                    explanation_models = [m["name"] for m in data.get("models", [])]
+                if ollama_model_is_available(cfg.explanation.model, explanation_models):
+                    ok("Einfache Vertragserklärung", f"lokales Modell {cfg.explanation.model}")
+                else:
+                    warn(
+                        "Einfache Vertragserklärung",
+                        f"{cfg.explanation.model} fehlt. Installiere es mit: "
+                        f"ollama pull {cfg.explanation.model}",
+                    )
+            except Exception as e:
+                from arkiv.core.errors import friendly_error
+
+                fail("Einfache Vertragserklärung", friendly_error(e, provider="ollama"))
 
     if cfg is not None and cfg.categories:
         empty_cats = [name for name, desc in cfg.categories.items() if not desc or not desc.strip()]

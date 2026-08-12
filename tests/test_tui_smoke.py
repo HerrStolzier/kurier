@@ -8,7 +8,7 @@ import pytest
 from textual.widgets import ListView, Static
 
 from arkiv.core.config import ArkivConfig
-from arkiv.tui.app import MENU_ITEMS, ArkivApp, HomeScreen
+from arkiv.tui.app import MENU_ITEMS, ArkivApp, HomeScreen, SetupWizardScreen
 
 
 @pytest.fixture
@@ -31,6 +31,23 @@ def test_tui_menu_uses_user_facing_healthcheck_label() -> None:
     assert "Eingang überwachen" in labels
     assert not any("Doctor" in label for label in labels)
     assert not any("Inbox" in label for label in labels)
+
+
+def test_tui_first_run_enables_local_contract_explanations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_file = tmp_path / "config.toml"
+    monkeypatch.setattr("arkiv.core.config.DEFAULT_CONFIG_DIR", tmp_path)
+    monkeypatch.setattr("arkiv.core.config.DEFAULT_CONFIG_FILE", config_file)
+    monkeypatch.setattr("arkiv.tui.app.Path.home", lambda: tmp_path)
+    wizard = SetupWizardScreen()
+    wizard._inbox_path = tmp_path / "Kurier" / "Eingang"
+
+    wizard._do_write_config()
+
+    loaded = ArkivConfig.load(config_file)
+    assert loaded.explanation.enabled is True
+    assert loaded.explanation.model == "qwen3.5:9b"
 
 
 @pytest.mark.asyncio

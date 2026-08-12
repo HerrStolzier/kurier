@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 from arkiv.core.ocr import (
     IMAGE_EXTENSIONS,
@@ -10,6 +11,7 @@ from arkiv.core.ocr import (
     PDF_EXTENSIONS,
     _ocr_pdf_page,
     _rendered_page_size,
+    extract_text_with_status,
     is_ocr_candidate,
     ocr_available,
 )
@@ -105,3 +107,40 @@ def test_grosse_seite_wird_heruntergerechnet_statt_uebersprungen() -> None:
 
     # Absurd gross: auch bei Mindestaufloesung nicht machbar
     assert _fitting_ocr_dpi(FakePage(60000, 60000)) is None
+
+
+def test_pdf_reports_pages_beyond_extraction_limit(tmp_path: Path) -> None:
+    import pymupdf
+
+    path = tmp_path / "lang.pdf"
+    document = pymupdf.open()
+    for page_number in range(51):
+        page = document.new_page()
+        page.insert_text((72, 72), f"Seite {page_number}: " + "Vertragstext " * 8)
+    document.save(path)
+    document.close()
+
+    text, is_partial = extract_text_with_status(path)
+
+    assert text
+    assert "Seite 49" in text
+    assert "Seite 50" not in text
+    assert is_partial is True
+
+
+def test_pdf_reports_pages_beyond_ocr_limit(tmp_path: Path) -> None:
+    import pymupdf
+
+    path = tmp_path / "scans.pdf"
+    document = pymupdf.open()
+    for _ in range(11):
+        document.new_page()
+    document.save(path)
+    document.close()
+
+    with patch("arkiv.core.ocr._ocr_pdf_page", return_value="Gelesener Vertragstext"):
+        text, is_partial = extract_text_with_status(path)
+
+    assert text
+    assert text.count("Gelesener Vertragstext") == 10
+    assert is_partial is True

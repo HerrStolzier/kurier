@@ -11,13 +11,20 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader
+from starlette.concurrency import run_in_threadpool
 
 from arkiv import __version__
 from arkiv.application.beta import record_beta_event
+from arkiv.application.explain import (
+    document_is_explainable,
+    explain_document,
+    explanation_model_available,
+)
 from arkiv.application.ingest import ingest_file as ingest_file_workflow
 from arkiv.application.review import confirm_review_item, correct_review_item, get_review_items
 from arkiv.application.search import search_items as search_items_workflow
 from arkiv.application.status import get_failed_items, get_recent_items, get_status
+from arkiv.core.explainer import ExplanationError
 from arkiv.core.router import display_route
 from arkiv.core.upload import validate_and_save
 
@@ -120,7 +127,69 @@ async def recent_partial(category: Annotated[str, Query()] = "") -> HTMLResponse
     for item in items:
         original_path = item.get("original_path") or ""
         item["source_name"] = Path(str(original_path).replace("text://", "")).name or original_path
-    return _render("partials/recent.html", items=items, category=selected)
+        item["can_explain"] = document_is_explainable(item)
+    explanation_enabled = ctx.config.explanation.enabled
+    has_explainable_contract = any(
+        item.get("category") == "vertrag"
+        and item.get("status") != "duplicate"
+        and item.get("can_explain")
+        for item in items
+    )
+    explanation_available = (
+        await run_in_threadpool(explanation_model_available, ctx)
+        if explanation_enabled and has_explainable_contract
+        else False
+    )
+    return _render(
+        "partials/recent.html",
+        items=items,
+        category=selected,
+        explanation_enabled=explanation_enabled,
+        explanation_available=explanation_available,
+    )
+
+
+@router.post("/partials/documents/{item_id}/explanation", response_class=HTMLResponse)
+async def document_explanation_partial(item_id: int) -> HTMLResponse:
+    """Explain a contract or terms in plain language when the user asks for it."""
+    from arkiv.inlets.api import _get_context
+
+    ctx = _get_context()
+    try:
+        explanation = await run_in_threadpool(explain_document, ctx, item_id)
+    except ExplanationError as exc:
+        record_beta_event(
+            ctx,
+            "document_explanation_failed",
+            "Einfache Erklärung nicht verfügbar",
+            severity="warn",
+            context={"reason": str(exc)},
+            item_id=item_id,
+        )
+        return _render(
+            "partials/document_explanation.html",
+            success=False,
+            message=str(exc),
+        )
+    except Exception:
+        logger.exception("Dashboard document explanation failed for item %s", item_id)
+        record_beta_event(
+            ctx,
+            "document_explanation_failed",
+            "Einfache Erklärung fehlgeschlagen",
+            severity="error",
+            item_id=item_id,
+        )
+        return _render(
+            "partials/document_explanation.html",
+            success=False,
+            message=(
+                "Die Erklärung konnte gerade nicht erstellt werden. "
+                "Bitte versuche es später erneut."
+            ),
+        )
+
+    return _render("partials/document_explanation.html", success=True, explanation=explanation)
 
 
 @router.get("/partials/failed", response_class=HTMLResponse)

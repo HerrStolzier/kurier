@@ -128,6 +128,27 @@ CREATE INDEX IF NOT EXISTS webhook_outbox_status_next_idx
 ON webhook_outbox(status, next_attempt_at);
 """
 
+DASHBOARD_REVISION_SCHEMA = """\
+CREATE TABLE IF NOT EXISTS dashboard_revision (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    revision INTEGER NOT NULL DEFAULT 0
+);
+
+INSERT OR IGNORE INTO dashboard_revision (singleton, revision) VALUES (1, 0);
+
+CREATE TRIGGER IF NOT EXISTS items_dashboard_revision_ai AFTER INSERT ON items BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE singleton = 1;
+END;
+
+CREATE TRIGGER IF NOT EXISTS items_dashboard_revision_au AFTER UPDATE ON items BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE singleton = 1;
+END;
+
+CREATE TRIGGER IF NOT EXISTS items_dashboard_revision_ad AFTER DELETE ON items BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE singleton = 1;
+END;
+"""
+
 # sqlite-vec virtual table (created separately since it needs the extension loaded)
 VEC_SCHEMA = """\
 CREATE VIRTUAL TABLE IF NOT EXISTS items_vec USING vec0(
@@ -215,6 +236,7 @@ class Store:
         self._migrate_fts_if_needed()
         self._conn.executescript(FTS_SCHEMA)
         self._backfill_title_fields_if_needed()
+        self._conn.executescript(DASHBOARD_REVISION_SCHEMA)
 
         # Try to enable vector search
         self._vec_enabled = _load_sqlite_vec(self._conn)
@@ -679,6 +701,13 @@ class Store:
                 (limit,),
             )
         return [dict(row) for row in cursor.fetchall()]
+
+    def document_list_revision(self) -> int:
+        """Return a constant-cost counter for changes to dashboard document lists."""
+        row = self._conn.execute(
+            "SELECT revision FROM dashboard_revision WHERE singleton = 1"
+        ).fetchone()
+        return int(row[0]) if row is not None else 0
 
     def update_status(self, item_id: int, status: str) -> None:
         """Update the status of an item."""

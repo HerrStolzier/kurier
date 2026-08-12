@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader
 from starlette.concurrency import run_in_threadpool
@@ -122,8 +122,9 @@ async def recent_partial(category: Annotated[str, Query()] = "") -> HTMLResponse
     from arkiv.inlets.api import _get_context
 
     ctx = _get_context()
+    documents_revision = ctx.engine.store.document_list_revision()
     selected = category.strip()
-    items = get_recent_items(ctx, limit=30, category=selected or None)
+    items = get_recent_items(ctx, limit=10, category=selected or None)
     for item in items:
         original_path = item.get("original_path") or ""
         item["source_name"] = Path(str(original_path).replace("text://", "")).name or original_path
@@ -140,13 +141,24 @@ async def recent_partial(category: Annotated[str, Query()] = "") -> HTMLResponse
         if explanation_enabled and has_explainable_contract
         else False
     )
-    return _render(
+    response = _render(
         "partials/recent.html",
         items=items,
         category=selected,
         explanation_enabled=explanation_enabled,
         explanation_available=explanation_available,
     )
+    response.headers["X-Kurier-Documents-Version"] = str(documents_revision)
+    return response
+
+
+@router.get("/documents-version", response_class=JSONResponse)
+async def documents_version() -> JSONResponse:
+    """Return a small revision so the dashboard only redraws changed lists."""
+    from arkiv.inlets.api import _get_context
+
+    ctx = _get_context()
+    return JSONResponse({"version": str(ctx.engine.store.document_list_revision())})
 
 
 @router.post("/partials/documents/{item_id}/explanation", response_class=HTMLResponse)
@@ -274,7 +286,7 @@ async def upload_partial(
             item_id=item_id,
         )
 
-    return _render(
+    response = _render(
         "partials/upload_result.html",
         success=result.success,
         message=result.message,
@@ -286,6 +298,9 @@ async def upload_partial(
         display_title=latest.get("display_title") or latest.get("destination_name") or category,
         route_name=route_name,
     )
+    if result.success:
+        response.headers["HX-Trigger"] = "kurier:documents-changed"
+    return response
 
 
 @router.get("/partials/review", response_class=HTMLResponse)
@@ -320,10 +335,12 @@ async def review_correct(
     except Exception as exc:
         logger.exception("Dashboard review correction failed")
         raise HTTPException(status_code=500, detail="Review action failed") from exc
-    return _render(
+    response = _render(
         "partials/review_done.html",
         message=f"Erledigt: Kategorie wurde auf '{category.strip()}' gesetzt.",
     )
+    response.headers["HX-Trigger"] = "kurier:documents-changed"
+    return response
 
 
 @router.post("/partials/review/{item_id}/confirm", response_class=HTMLResponse)
@@ -344,7 +361,9 @@ async def review_confirm(item_id: int) -> HTMLResponse:
     except Exception as exc:
         logger.exception("Dashboard review confirmation failed")
         raise HTTPException(status_code=500, detail="Review action failed") from exc
-    return _render("partials/review_done.html", message="Erledigt: Einordnung bestätigt.")
+    response = _render("partials/review_done.html", message="Erledigt: Einordnung bestätigt.")
+    response.headers["HX-Trigger"] = "kurier:documents-changed"
+    return response
 
 
 @router.post("/partials/beta/problem", response_class=HTMLResponse)

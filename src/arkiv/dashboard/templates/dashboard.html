@@ -110,31 +110,45 @@
 
 <!-- Tabs: Recent / Review -->
 <section>
-    <div class="bg-arkiv-900 rounded-xl border border-arkiv-800 p-6">
+    <div class="bg-arkiv-900 rounded-xl border border-arkiv-800 p-4 sm:p-6">
+        <div class="mb-5">
+            <h2 class="text-lg font-medium text-white">Dokumente</h2>
+            <p class="mt-1 text-sm text-gray-400">
+                Die neuesten Ablagen. Ältere Dokumente findest du über die Suche.
+            </p>
+        </div>
         <!-- Tab nav -->
-        <div class="flex items-center justify-between mb-4">
-            <div class="flex gap-4 text-sm" id="tab-nav">
+        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div class="inline-flex w-full rounded-lg bg-arkiv-950 p-1 text-sm sm:w-auto" id="tab-nav">
                 <button id="tab-recent-btn"
                         onclick="switchTab('recent')"
-                        class="font-medium text-white border-b-2 border-arkiv-500 pb-0.5">
-                    Letzte Dokumente
+                        aria-selected="true"
+                        class="flex-1 rounded px-3 py-2 font-medium text-white bg-arkiv-800 sm:flex-none">
+                    Neu abgelegt
                 </button>
                 <button id="tab-review-btn"
                         onclick="switchTab('review')"
-                        class="text-gray-400 hover:text-white pb-0.5 border-b-2 border-transparent hover:border-arkiv-800 transition">
-                    Überprüfung
+                        aria-selected="false"
+                        class="flex-1 rounded px-3 py-2 text-gray-400 hover:text-white transition sm:flex-none">
+                    Zu prüfen
                 </button>
                 <button id="tab-failed-btn"
                         onclick="switchTab('failed')"
-                        class="text-gray-400 hover:text-white pb-0.5 border-b-2 border-transparent hover:border-arkiv-800 transition">
-                    Nicht geschafft
+                        aria-selected="false"
+                        class="flex-1 rounded px-3 py-2 text-gray-400 hover:text-white transition sm:flex-none">
+                    Fehler
                 </button>
             </div>
             <button id="tab-refresh-btn"
                     hx-get="/dashboard/partials/recent"
                     hx-target="#recent-items"
-                    class="text-sm text-arkiv-500 hover:text-arkiv-400">
-                Aktualisieren
+                    hx-indicator="#tab-refresh-spinner"
+                    class="inline-flex items-center gap-2 self-end rounded-lg px-3 py-2 text-sm text-arkiv-500 hover:bg-arkiv-800 hover:text-white transition sm:self-auto">
+                <svg id="tab-refresh-spinner" class="htmx-indicator h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                </svg>
+                Neu laden
             </button>
         </div>
 
@@ -142,7 +156,7 @@
         <div id="tab-recent">
             <div id="recent-items"
                  hx-get="/dashboard/partials/recent"
-                 hx-trigger="load, every 5s"
+                 hx-trigger="load, kurier:documents-changed from:body"
                  hx-swap="innerHTML">
                 <div class="text-gray-500 text-sm">Lade Dokumente...</div>
             </div>
@@ -181,8 +195,9 @@
             const refreshBtn = document.getElementById('tab-refresh-btn');
             if (t === name) {
                 pane.classList.remove('hidden');
-                btn.classList.add('text-white', 'border-arkiv-500');
-                btn.classList.remove('text-gray-400', 'border-transparent');
+                btn.setAttribute('aria-selected', 'true');
+                btn.classList.add('text-white', 'bg-arkiv-800');
+                btn.classList.remove('text-gray-400');
                 if (t === 'review') {
                     refreshBtn.setAttribute('hx-get', '/dashboard/partials/review');
                     refreshBtn.setAttribute('hx-target', '#review-items');
@@ -196,8 +211,9 @@
                 htmx.process(refreshBtn);
             } else {
                 pane.classList.add('hidden');
-                btn.classList.remove('text-white', 'border-arkiv-500');
-                btn.classList.add('text-gray-400', 'border-transparent');
+                btn.setAttribute('aria-selected', 'false');
+                btn.classList.remove('text-white', 'bg-arkiv-800');
+                btn.classList.add('text-gray-400');
             }
         });
     }
@@ -206,8 +222,7 @@
 <!-- Filter nach Dokumentart -->
 <script>
     // Der Filter lebt im hx-get des Containers, nicht in einer Variablen:
-    // die Liste laedt sich alle 5s selbst neu und wuerde den Filter sonst
-    // jedes Mal verwerfen.
+    // so behalten manuelles Neuladen und Ereignisse den aktiven Filter bei.
     function filterKategorie(kategorie) {
         const container = document.getElementById('recent-items');
         const url = kategorie
@@ -243,6 +258,44 @@
         const container = document.getElementById('recent-items');
         return container ? container.getAttribute('hx-get') : '/dashboard/partials/recent';
     }
+
+    // Nur eine kleine Kennung abfragen. Die sichtbare Liste wird erst neu
+    // geladen, wenn Kurier wirklich etwas an den Dokumenten geändert hat.
+    let bekannteDokumentVersion = null;
+
+    async function pruefeDokumentAenderungen() {
+        if (document.hidden) return;
+
+        try {
+            const response = await fetch('/dashboard/documents-version', {
+                cache: 'no-store',
+                headers: {'Accept': 'application/json'},
+            });
+            if (!response.ok) return;
+
+            const data = await response.json();
+            if (bekannteDokumentVersion === null) {
+                bekannteDokumentVersion = data.version;
+            } else if (data.version !== bekannteDokumentVersion) {
+                bekannteDokumentVersion = data.version;
+                document.body.dispatchEvent(new CustomEvent(
+                    'kurier:documents-changed',
+                    {detail: {fromVersionCheck: true}},
+                ));
+            }
+        } catch (_) {
+            // Das Dashboard bleibt benutzbar. "Neu laden" funktioniert weiter.
+        }
+    }
+
+    document.body.addEventListener('htmx:afterRequest', function (event) {
+        const path = event.detail.requestConfig && event.detail.requestConfig.path;
+        if (path && path.startsWith('/dashboard/partials/recent')) {
+            const version = event.detail.xhr.getResponseHeader('X-Kurier-Documents-Version');
+            if (version !== null) bekannteDokumentVersion = version;
+        }
+    });
+    window.setInterval(pruefeDokumentAenderungen, 30000);
 </script>
 
 

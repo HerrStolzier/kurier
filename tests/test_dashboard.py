@@ -47,7 +47,11 @@ def test_dashboard_loads(client: TestClient) -> None:
     assert "styles.css" in resp.text
     assert "kurier-csrf-token" in resp.text
     assert "Problem melden" in resp.text
-    assert 'hx-trigger="load, every 5s"' in resp.text
+    assert 'hx-trigger="load, kurier:documents-changed from:body"' in resp.text
+    assert "every 5s" not in resp.text
+    assert "window.setInterval(pruefeDokumentAenderungen, 30000)" in resp.text
+    assert "Neu abgelegt" in resp.text
+    assert "Zu prüfen" in resp.text
     assert 'id="document-explanation-panel"' in resp.text
 
 
@@ -90,6 +94,54 @@ def test_recent_partial_empty(client: TestClient) -> None:
     resp = client.get("/dashboard/partials/recent")
     assert resp.status_code == 200
     assert "Noch keine Dokumente verarbeitet" in resp.text
+    assert resp.headers["X-Kurier-Documents-Version"] == "0"
+
+
+def test_documents_version_changes_after_ingest(client: TestClient) -> None:
+    from arkiv.inlets.api import _get_context
+
+    before = client.get("/dashboard/documents-version")
+    _get_context().engine.store.record_item(
+        original_path="/tmp/neu.pdf",
+        destination="/tmp/Archiv/neu.pdf",
+        category="brief",
+        confidence=0.9,
+        summary="Ein neuer Brief.",
+        tags=[],
+        language="de",
+        route_name="archiv",
+    )
+    after = client.get("/dashboard/documents-version")
+
+    assert before.status_code == 200
+    assert after.status_code == 200
+    assert before.json()["version"] != after.json()["version"]
+
+
+def test_documents_version_covers_items_older_than_fifty(client: TestClient) -> None:
+    from arkiv.inlets.api import _get_context
+
+    store = _get_context().engine.store
+    oldest_id = 0
+    for index in range(51):
+        item_id = store.record_item(
+            original_path=f"/tmp/dokument-{index}.pdf",
+            destination=f"/tmp/Archiv/dokument-{index}.pdf",
+            category="brief",
+            confidence=0.9,
+            summary=f"Dokument {index}",
+            tags=[],
+            language="de",
+            route_name="archiv",
+        )
+        if index == 0:
+            oldest_id = item_id
+
+    before = client.get("/dashboard/documents-version").json()["version"]
+    store.update_category(oldest_id, "vertrag")
+    after = client.get("/dashboard/documents-version").json()["version"]
+
+    assert before != after
 
 
 def test_search_partial_empty_query(client: TestClient) -> None:
@@ -157,6 +209,7 @@ def test_upload_partial(client: TestClient) -> None:
     assert "Erledigt" in resp.text
     assert "Erkannt als" in resp.text
     assert "Wenn das falsch ist" in resp.text
+    assert resp.headers["HX-Trigger"] == "kurier:documents-changed"
 
 
 def test_search_after_upload(client: TestClient) -> None:
@@ -252,11 +305,10 @@ def test_recent_shows_items_after_upload(client: TestClient) -> None:
 
     resp = client.get("/dashboard/partials/recent")
     assert resp.status_code == 200
-    assert "Zuletzt erledigt" in resp.text
-    assert "Erledigt" in resp.text
+    assert "Weitere Angaben" in resp.text
     assert "Quelle:" in resp.text
     assert "Ablage:" in resp.text
-    assert "Wenn das falsch ist" in resp.text
+    assert "Wenn die Einordnung falsch ist" in resp.text
     assert "A quick note" in resp.text
     assert "notiz" in resp.text
     assert "Kurze Notiz" in resp.text
@@ -419,6 +471,7 @@ def test_review_correct_confirms_item_and_removes_it_from_queue(
     assert resp.status_code == 200
     assert "Erledigt" in resp.text
     assert "brief" in resp.text
+    assert resp.headers["HX-Trigger"] == "kurier:documents-changed"
 
     after = client.get("/dashboard/partials/review")
     assert after.status_code == 200
@@ -453,7 +506,7 @@ def test_failed_partial_zeigt_fehlschlag_mit_grund(client: TestClient) -> None:
 
 def test_dashboard_hat_failed_tab_und_footer(client: TestClient) -> None:
     resp = client.get("/dashboard/")
-    assert "Nicht geschafft" in resp.text
+    assert "Fehler" in resp.text
     assert "Für Fortgeschrittene" in resp.text
     # Header ist aufgeraeumt: API-Doku nur noch im Footer
     assert resp.text.count("API-Doku") == 1

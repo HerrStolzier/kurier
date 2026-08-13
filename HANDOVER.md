@@ -1,210 +1,277 @@
-# Handover for Next Agent
+# Kurier Handover
 
-## Kurzüberblick
+Stand: 13. August 2026
 
-Kurier ist aktuell auf `main` sauber committed und mit `origin/main` synchron.
+Dieses Dokument ist die aktuelle Übergabe für einen neuen Codex, Claude oder ChatGPT Agenten. Es ersetzt den früheren Stand in dieser Datei.
 
-Wichtige letzte Commits:
+## Auftrag und aktueller Fokus
 
-- `6ac5666` `docs: defer browser extension roadmap item`
-- `e6404b4` `fix: confirm manual review corrections`
-- `4964030` `fix: serve dashboard static assets`
-- `d3119db` `feat: add memory search query assist`
+Kurier ist ein lokaler Dokumentenhelfer. Dateien kommen in einen Eingangsordner, werden erkannt, passend abgelegt und später über Suche oder Dashboard wiedergefunden.
 
-Der Fokus der letzten Session lag auf drei Dingen:
+Die letzten beiden Produktänderungen waren:
 
-1. KI-gestützte Erinnerungssuche
-2. echte End-to-End-Tests wie ein Nutzer
-3. frische Installations-Tests von null
+1. Verträge und AGB im Dashboard auf Wunsch in einfacher Sprache erklären.
+2. Den Dokumentbereich im Dashboard ruhiger, kleiner und verständlicher machen.
 
-## Was schon umgesetzt ist
+Der nächste sinnvolle Schwerpunkt ist nicht noch eine neue Funktion. Zuerst sollte der Prüf Ordner vollständig mit der Prüfliste im Dashboard verbunden werden.
 
-### KI-Suche / Memory Search
+## Bestätigter Stand des Repos
 
-Die Erinnerungssuche ist als echte Produktfunktion eingebaut.
+| Punkt | Stand |
+|---|---|
+| Branch | `main` |
+| Produktstand vor diesem Handover | `4662bb2` |
+| GitHub | `main` war am 13. August 2026 mit `origin/main` synchron |
+| Projektversion | `0.4.2` |
+| Arbeitsbaum vor diesem Handover | sauber |
 
-Wichtige Punkte:
+Wichtige aktuelle Commits:
 
-- Suchsignale wurden erweitert:
-  - `suggested_filename`
-  - `destination_name`
-  - `display_title`
-- Diese Felder werden in der DB gespeichert und im FTS-Index berücksichtigt.
-- Das lokale LLM wird als Query-Assist verwendet:
-  - Suchanfrage umformulieren
-  - Filterhinweise ableiten
-  - Suchvarianten erzeugen
-- Treffer bekommen eine lesbare Begründung über `match_reason`.
+| Commit | Inhalt |
+|---|---|
+| `4662bb2` | Workflow Guard auf Version 1.0.1 aktualisiert |
+| `86aa800` | Dokumentbereich im Dashboard beruhigt |
+| `3fe8348` | Lokale Erklärung für Verträge und AGB eingebaut |
+| `cf51718` und `910e957` | Große Scans lesen und OCR Fehlerfälle absichern |
+| `b33d122` | Inhaltsgleiche Dokumente als Duplikate erkennen |
+
+## Bestätigter lokaler Betriebszustand
+
+Der Gesundheitscheck wurde am 13. August 2026 außerhalb der geschützten Testumgebung ausgeführt.
+
+| Bereich | Ergebnis |
+|---|---|
+| Automatische Sortierung | läuft als lokaler Dienst |
+| Eingang | leer |
+| Prüf Ordner | 5 Dateien warten auf Sichtung |
+| Ablage Daten | 43 Einträge, keine Fehler |
+| Webhooks | keine offenen Zustellungen |
+| Klassifikation | Ollama mit `qwen2.5:7b`, erreichbar |
+| Vertragserklärung | Ollama mit `qwen3.5:9b`, erreichbar |
+| Arbeitsspeicher | 16 GB, Gesundheitscheck meldet passend |
+| Dashboard Server | läuft nicht dauerhaft mit dem Sortierdienst und muss bei Bedarf mit `kurier serve` gestartet werden |
+
+`ollama list` zeigte nur diese benötigten Modelle:
+
+- `qwen2.5:7b`
+- `qwen3.5:9b`
+- `nomic-embed-text:latest`
+
+Ein Gemma Modell ist nicht mehr installiert.
+
+Wichtig: Der Sortierdienst und das Dashboard sind getrennt. Die automatische Sortierung kann laufen, während auf Port `8790` kein Dashboard Server aktiv ist.
+
+## Lokale Erklärung für Verträge und AGB
+
+### Was umgesetzt ist
+
+Bei abgelegten Dokumenten der Kategorie `vertrag` erscheint im Dashboard die Schaltfläche **Einfach erklären**. Erst nach dem Klick liest Kurier die lokale Datei und erstellt eine feste Erklärung. Es gibt keinen freien Chat.
+
+Die Ausgabe enthält:
+
+- eine kurze Zusammenfassung
+- höchstens sechs wichtige Punkte
+- offene Fragen, wenn der Text etwas nicht klar sagt
+- die jeweiligen Textstellen aus dem Dokument
+- einen klaren Hinweis, dass dies keine Rechtsberatung ist
+
+### Warum zwei Modelle verwendet werden
+
+`qwen2.5:7b` bleibt für die normale Dokument Erkennung zuständig. Es ist für diese kurze Aufgabe schneller und im bisherigen Kurier Benchmark bewährt.
+
+`qwen3.5:9b` wird nur für die ausführlichere Vertragserklärung genutzt. Der Denkmodus ist im Code mit `think=False` abgeschaltet, damit keine lange Denkpause entsteht.
+
+### Wie die Absicherung funktioniert
+
+Die Erklärung wird als festes JSON Format verlangt und danach streng geprüft. Aussagen ohne echte Textstelle werden verworfen. Bei einem unbrauchbaren Ergebnis versucht Kurier es einmal erneut. Danach zeigt Kurier lieber einen Fehler, statt eine unbelegte Erklärung auszugeben.
+
+Lange Dokumente werden nur bis zur eingestellten Grenze gelesen. Die Oberfläche warnt sichtbar, wenn nicht das gesamte Dokument berücksichtigt wurde. Die aktuelle Grenze ist `8000` Zeichen.
 
 Wichtige Dateien:
 
-- [src/arkiv/core/search_assistant.py](/Users/ten.december/claude-projects/kurier/src/arkiv/core/search_assistant.py)
-- [src/arkiv/core/engine.py](/Users/ten.december/claude-projects/kurier/src/arkiv/core/engine.py)
-- [src/arkiv/db/store.py](/Users/ten.december/claude-projects/kurier/src/arkiv/db/store.py)
-- [src/arkiv/inlets/api.py](/Users/ten.december/claude-projects/kurier/src/arkiv/inlets/api.py)
-- [src/arkiv/cli.py](/Users/ten.december/claude-projects/kurier/src/arkiv/cli.py)
-- [src/arkiv/dashboard/routes.py](/Users/ten.december/claude-projects/kurier/src/arkiv/dashboard/routes.py)
-- [src/arkiv/dashboard/templates/dashboard.html](/Users/ten.december/claude-projects/kurier/src/arkiv/dashboard/templates/dashboard.html)
-- [src/arkiv/dashboard/templates/partials/search_results.html](/Users/ten.december/claude-projects/kurier/src/arkiv/dashboard/templates/partials/search_results.html)
+- `src/arkiv/core/explainer.py`
+- `src/arkiv/application/explain.py`
+- `src/arkiv/core/config.py`
+- `src/arkiv/dashboard/routes.py`
+- `src/arkiv/dashboard/templates/partials/document_explanation.html`
+- `tests/test_explainer.py`
+- `tests/test_dashboard.py`
 
-### Eval-/Planungsartefakte
+Aktuelle lokale Einstellung:
 
-Es gibt bereits vorbereitete Unterlagen für Modellvergleich und Eval-Logik:
+```toml
+[llm]
+provider = "ollama"
+model = "qwen2.5:7b"
 
-- [ai-memory-search-sprint-1-plan.md](/Users/ten.december/claude-projects/kurier/ai-memory-search-sprint-1-plan.md)
-- [docs/ai-memory-search-requirements.md](/Users/ten.december/claude-projects/kurier/docs/ai-memory-search-requirements.md)
-- [docs/ai-memory-search-model-shortlist.md](/Users/ten.december/claude-projects/kurier/docs/ai-memory-search-model-shortlist.md)
-- [docs/ai-memory-search-mvp-decision.md](/Users/ten.december/claude-projects/kurier/docs/ai-memory-search-mvp-decision.md)
-- [security_best_practices_report.md](/Users/ten.december/claude-projects/kurier/security_best_practices_report.md)
-- [src/arkiv/evals/ai_search_benchmark.py](/Users/ten.december/claude-projects/kurier/src/arkiv/evals/ai_search_benchmark.py)
-- [tests/fixtures/ai_search_benchmark.json](/Users/ten.december/claude-projects/kurier/tests/fixtures/ai_search_benchmark.json)
+[explanation]
+enabled = true
+model = "qwen3.5:9b"
+```
 
-### Review-Flow-Fix
+## Ruhiger Dokumentbereich im Dashboard
 
-Ein echter Nutzerbug wurde behoben:
+### Was sich geändert hat
 
-- Vorher kam ein Eintrag nach manueller Korrektur im Dashboard-Review nach dem nächsten Refresh wieder zurück.
-- Ursache: `update_category()` änderte die Kategorie, aber nicht die Confidence.
-- Jetzt gilt eine manuelle Korrektur als bestätigt und setzt `confidence = 1.0`.
+Der frühere große Bereich mit vielen verschachtelten Karten wurde durch eine kompakte Liste ersetzt. Sichtbar sind nur die zehn neuesten Dokumente. Quelle, Sortierregel und Korrekturhinweis liegen unter **Weitere Angaben**.
 
-Relevante Stellen:
+Die drei Bereiche heißen jetzt:
 
-- [src/arkiv/db/store.py](/Users/ten.december/claude-projects/kurier/src/arkiv/db/store.py)
-- [tests/test_store.py](/Users/ten.december/claude-projects/kurier/tests/test_store.py)
-- [tests/test_dashboard.py](/Users/ten.december/claude-projects/kurier/tests/test_dashboard.py)
+- **Neu abgelegt**
+- **Zu prüfen**
+- **Fehler**
 
-### Dashboard-Static-Fix
+### Wie die Aktualisierung funktioniert
 
-Ein echter Browser-Bug wurde behoben:
+Die Dokumentliste lädt sich nicht mehr alle fünf Sekunden vollständig neu. Kurier prüft alle 30 Sekunden nur einen kleinen Änderungszähler in SQLite. Erst wenn sich Dokument Daten geändert haben, wird die sichtbare Liste neu geladen.
 
-- Vorher wurden `/dashboard/static/styles.css` und `/dashboard/static/htmx.min.js` nicht korrekt ausgeliefert.
-- Ursache war das Mounting der Static Assets.
-- Das ist jetzt gefixt.
+Uploads sowie Bestätigungen und Korrekturen senden sofort das Ereignis `kurier:documents-changed`. Dadurch bleibt die Oberfläche aktuell, ohne beim Lesen aufzuspringen.
 
-Relevante Stellen:
+Wichtige Stellen:
 
-- [src/arkiv/inlets/api.py](/Users/ten.december/claude-projects/kurier/src/arkiv/inlets/api.py)
-- [src/arkiv/dashboard/routes.py](/Users/ten.december/claude-projects/kurier/src/arkiv/dashboard/routes.py)
-- [tests/test_dashboard.py](/Users/ten.december/claude-projects/kurier/tests/test_dashboard.py)
+- `src/arkiv/db/store.py`: Tabelle und Trigger für `dashboard_revision`
+- `src/arkiv/dashboard/routes.py`: `/dashboard/documents-version`
+- `src/arkiv/dashboard/templates/dashboard.html`: ruhige Aktualisierung und Tabs
+- `src/arkiv/dashboard/templates/partials/recent.html`: kompakte Dokumentzeilen
 
-## Was wirklich E2E getestet wurde
+Die Oberfläche wurde in einer schmalen Browseransicht geprüft. Ein geöffnetes Detail blieb über 35 Sekunden offen. Damit wurde belegt, dass die Liste ohne echte Änderung nicht mehr neu aufgebaut wird.
 
-Die folgenden Wege wurden nicht nur über Unit-Tests, sondern als echter Nutzerlauf geprüft:
+## Wichtigster offener Produktfehler
 
-### Vorhandene Umgebung / echter Produktfluss
+Im Prüf Ordner liegen aktuell fünf Dateien. Die Dashboard Prüfliste zeigt aber nur unsichere Datenbank Einträge, deren `route_name` nicht `__review__` ist. Dateien, die Kurier bereits physisch in den Prüf Ordner verschoben hat, werden deshalb bewusst ausgeschlossen.
 
-- `kurier doctor`
-- `kurier add`
-- `kurier search --memory`
-- `kurier serve`
-- Dashboard-Suche mit `dev-browser`
-- `kurier watch` mit echter Datei im Eingang
-- `kurier undo`
-- Dashboard-Review-Flow mit echten Klicks im Browser
-- `kurier tui` Start-Smoke
+Die Ursache steht in `Store.low_confidence()` in `src/arkiv/db/store.py`:
 
-### Frische Installation von null
+```sql
+AND route_name != '__review__'
+```
 
-Zwei Wege wurden neu geprüft:
+Diese Zeile darf nicht einfach entfernt werden. Frühere Gegenprüfungen haben zwei Folgefehler gezeigt:
 
-1. Developer-Install
-   - neues Python-3.11-venv
-   - `uv pip install -e ".[dev]"`
-   - danach echter CLI-Smoke
+1. Bestätigen oder Korrigieren würde nur die Datenbank ändern. Die Datei bliebe trotzdem im Prüf Ordner.
+2. Ein neuer Status wie `reviewed` würde bestehende Regeln für Duplikate, Watcher und Rückgängig machen beschädigen, weil diese mit `routed` arbeiten.
 
-2. Paket-Install
-   - Wheel via `uv build`
-   - neues Python-3.11-venv
-   - `uv pip install <wheel>`
-   - danach echter CLI-Smoke
+Die saubere Lösung braucht einen vollständigen Ablauf:
 
-Beide Installationswege funktionierten.
+1. Das Dashboard zeigt auch Einträge mit `route_name = '__review__'`.
+2. Bestätigen oder Korrigieren führt die Datei aus dem Prüf Ordner durch die passende Ablageregel.
+3. Die Datenbank behält einen Status, den Watcher, Duplikat Prüfung und Rückgängig machen verstehen.
+4. Der Abschluss der Prüfung wird getrennt und eindeutig gespeichert.
+5. Tests prüfen Dateiort, Datenbank, erneutes Laden, Duplikate und Rückgängig machen gemeinsam.
 
-## Letzter verifizierter technischer Stand
+Dieser Punkt hat Vorrang, weil der Gesundheitscheck fünf wartende Dateien meldet, die aktuelle Dashboard Prüfliste aber nicht zuverlässig bearbeiten kann.
 
-Folgende Checks liefen grün:
+## Weitere offene Punkte
 
-- `ruff check src/`
-- `mypy src/arkiv/ --ignore-missing-imports`
-- `pytest tests/ -x -q`
+### Echter Alltagstest fehlt noch
 
-Letztes Ergebnis:
+Der lokale Beta Bericht enthält noch keine Stolperer. Der geplante Test über fünf echte Nutzungstage wurde noch nicht abgeschlossen. Grundlage ist `docs/anti-failure-plan.md`.
 
-- `110 passed`
-- bekannte OCR-Deprecation-Warnings, aber keine neuen Testfehler
+### Vertragserklärung braucht reale Qualitätsfälle
 
-## Wichtige inhaltliche Entscheidungen
+Modell, Gesundheitscheck, Oberfläche und automatische Tests sind grün. In dieser Übergabe wurde aber keine neue Erklärung mit einem echten privaten Vertrag erzeugt und inhaltlich bewertet.
 
-### Aus dem aktuellen Kernumfang herausgenommen
+Sinnvoll sind zwei bis drei bewusst ausgewählte Dokumente:
 
-- Browser-Extension: vorerst gestrichen
-- E-Mail-Inlet: vorerst nicht Kernfokus, nur als optional später markiert
+- ein kurzer Vertrag mit klaren Kosten und Fristen
+- längere AGB mit Kündigung und Haftung
+- ein gescannter Vertrag mit OCR Text
 
-Aktuelle README-Lage:
+Dabei getrennt prüfen: richtige Aussagen, belegte Textstellen, verständliche Sprache, Wartezeit und sichtbare Unsicherheit.
 
-- Browser-Extension ist aus der Roadmap entfernt.
-- E-Mail-Inlet steht als `Optional later`.
+### Dokumentation ist teilweise veraltet
 
-### Webhook-Plugin bleibt optional sinnvoll
+`README.md`, `docs/product-maturity.md` und `docs/anti-failure-plan.md` nennen teilweise noch **Letzte Dokumente** statt **Dokumente** und **Neu abgelegt**. Die Produktreife Dokumente tragen außerdem noch den Stand Mai 2026 und kennen die neue Vertragserklärung nicht vollständig.
 
-Das Webhook-Plugin ist noch im Projekt und als optionales Extra sinnvoll:
+Diese Texte sollten nach der Lösung des Prüf Ordner Ablaufs gemeinsam aktualisiert werden, damit die Beschreibung nicht erneut sofort veraltet.
 
-- Slack
-- Discord
-- n8n
-- Zapier
-- eigene Endpunkte
+## Empfohlene Reihenfolge für die nächste Arbeit
 
-Es gehört aber eher zum Erweiterungsbild als zum minimalen Kernfluss.
+1. Prüf Ordner und Dashboard Prüfliste als vollständigen Ablauf planen und gegenlesen lassen.
+2. Den Ablauf mit echten temporären Dateien umsetzen und alle Folgewege testen.
+3. Zwei bis drei reale Vertragserklärungen qualitativ prüfen und Wartezeiten notieren.
+4. Den fünf Tage Alltagstest starten und lokale Beta Hinweise auswerten.
+5. README und Produktreife Dokumente auf den dann bestätigten Stand bringen.
 
-## Offene Kanten / ehrliche Restpunkte
+## Technische Leitplanken
 
-Diese Dinge sind **nicht** vollständig als harter E2E-Gesamtfluss abgeschlossen:
+### KI Aufrufe
 
-- Webhook-Plugin als kompletter Live-End-to-End-Lauf gegen einen echten Zielendpunkt
-- Browser-Extension, bewusst zurückgestellt
-- E-Mail-Inlet als Priorität, bewusst zurückgestellt
-- eventuelle tiefere TUI-Interaktion über den Start-Smoke hinaus
+Alle Modell Aufrufe müssen durch `src/arkiv/core/llm.py` laufen. `litellm` darf nicht wieder eingeführt werden.
 
-Außerdem ist bei frischer Installation ein kleiner UX-Punkt sichtbar:
+### Einstellungen
 
-- `kurier doctor` meldet anfangs das Archiv-Verzeichnis als fehlend
-- das ist kein echter Defekt, weil `kurier add` es korrekt anlegt
-- aber es ist eine erste Nutzerkante, falls jemand einen komplett reibungslosen Erststart erwartet
+Die echte Konfiguration liegt unter `~/.config/kurier/config.toml`. Grundeinstellungen wie `inbox_dir` und `review_dir` müssen vor der ersten TOML Tabelle stehen. Sonst werden sie still dem falschen Abschnitt zugeordnet.
 
-## Was der nächste Agent sinnvoll tun könnte
+Keine Zugangsdaten ausgeben oder committen. Der lokale n8n Schlüssel liegt außerhalb des Repos.
 
-Die sinnvollsten nächsten Richtungen sind:
+### Installierte lokale Version aktualisieren
 
-1. README/Erststart noch glatter machen
-   - klarer erklären, dass `doctor` fehlende Zielordner am Anfang nur als Hinweis meldet
-   - eventuell `init` oder `doctor --fix` weiter schärfen
+Ein einfaches `pipx install --force` kann alten Code behalten. Nach einer geprüften Änderung diese Installation verwenden:
 
-2. Webhook-Plugin bewusst einordnen
-   - optionales Extra so dokumentieren, dass es nicht wie Kernfunktion wirkt
-   - wenn gewünscht: einmal echter Live-Smoke gegen lokalen Test-Webhook
+```bash
+/Users/ten.december/.local/pipx/venvs/kurier/bin/python \
+  -m pip install --force-reinstall --no-cache-dir --no-deps .
+```
 
-3. KI-Suche weiter verbessern
-   - bessere Filterlogik
-   - multilingual/deutschfreundlichere Embeddings prüfen
-   - echtes Modell-Benchmarking gegen die vorbereiteten Eval-Fixtures
+Danach den betroffenen Kurier Prozess neu starten und die installierte Funktion prüfen.
 
-4. Produktreife-Einschätzung machen
-   - kurze ehrliche Matrix: „stabil“, „brauchbar“, „experimentell“, „zurückgestellt“
+### macOS Netzwerk Falle
 
-## Praktische Hinweise für den nächsten Agenten
+Die Freigabe **Lokales Netzwerk** gilt pro Python Programm. Der installierte Kurier Dienst kann n8n erreichen, während die Repo Umgebung denselben Aufruf mit `No route to host` ablehnen kann. Bei Webhook Fehlern immer beide Python Programme getrennt prüfen.
 
-- Bitte alle LLM-Aufrufe weiter über [src/arkiv/core/llm.py](/Users/ten.december/claude-projects/kurier/src/arkiv/core/llm.py) laufen lassen.
-- `litellm` nicht wieder einführen.
-- Nach Codeänderungen diese drei Checks laufen lassen:
-  - `ruff check src/`
-  - `mypy src/arkiv/ --ignore-missing-imports`
-  - `pytest tests/ -x -q`
-- Wenn Provider-Wiring, Klassifikation oder Plugin-Hooks verändert werden, mindestens einen echten Provider-Smoke mitlaufen lassen.
+### Dashboard CSS
 
-## Repo-Zustand zum Handover-Zeitpunkt
+Nach neuen Klassen in Dashboard Vorlagen das feste Tailwind CSS neu bauen:
 
-- Branch: `main`
-- Remote: `origin/main`
-- Stand: synchron
-- Arbeitsbaum: sauber
+```bash
+cd src/arkiv/dashboard
+./node_modules/.bin/tailwindcss -i input.css -o static/styles.css --minify
+```
+
+`node_modules` nie committen.
+
+## Pflichtprüfungen nach Änderungen
+
+Für normale Code Änderungen:
+
+```bash
+uv run ruff check src/ tests/
+uv run mypy src/arkiv/ --ignore-missing-imports
+uv run pytest tests/ -x -q
+```
+
+Bei Änderungen am Webhook Plugin zusätzlich:
+
+```bash
+uv run pytest \
+  --rootdir=plugins/arkiv-webhook \
+  --override-ini="testpaths=plugins/arkiv-webhook/tests" \
+  plugins/arkiv-webhook/tests/
+```
+
+Vor dem Abschluss einer nicht kleinen Änderung:
+
+```bash
+scripts/agent_review --uncommitted
+python3 scripts/agent_finish.py --auto-claims
+```
+
+Wenn sich der Code nach der Gegenprüfung ändert, ist die alte Gegenprüfung nicht mehr gültig.
+
+## Zuletzt belegte Qualität
+
+Für den heutigen Repository Stand einschließlich dieses Handover Inhalts wurden diese Ergebnisse bestätigt:
+
+- 311 Tests erfolgreich
+- Ruff ohne Fehler
+- Typprüfung ohne Fehler
+- Review Gate erfolgreich, ohne neue Code Änderungen
+- Workflow Guard erfolgreich
+- Browserprüfung in schmaler Ansicht erfolgreich
+
+Eine zusätzliche externe Gegenprüfung des Handover Textes wurde aus Datenschutzgründen blockiert. Sie hätte lokale Projektpfade an einen externen Prüfer senden können. Die lokale Abschlussprüfung meldete keine Code Änderungen und verlangte deshalb keine neue Modell Gegenprüfung.
+
+## Direkt nutzbarer Startauftrag für den nächsten Agenten
+
+> Lies zuerst `AGENTS.md`, `CLAUDE.md`, `docs/project-learnings.md` und `HANDOVER.md`. Untersuche dann den Ablauf für die fünf Dateien im Prüf Ordner. Plane eine Lösung, bei der Bestätigen oder Korrigieren die echte Datei aus dem Prüf Ordner passend ablegt, ohne Watcher, Duplikat Erkennung oder Rückgängig machen zu beschädigen. Lass den Plan gegenlesen, setze ihn mit End to End Tests um und schließe mit `python3 scripts/agent_finish.py --auto-claims` ab. Zeige oder drucke keine privaten Dokumentinhalte und keine Zugangsdaten.

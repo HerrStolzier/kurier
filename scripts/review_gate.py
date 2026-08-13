@@ -168,6 +168,26 @@ def read_text(path):
         return None
 
 
+def review_artifact_valid(rec, store):
+    """Ein angenommener Beleg zaehlt nur mit unveraendertem Review-Text."""
+    if store is None:
+        return False
+    name = rec.get("file")
+    expected = rec.get("review_sha256")
+    if (
+        not isinstance(name, str)
+        or pathlib.Path(name).name != name
+        or not isinstance(expected, str)
+        or len(expected) != 64
+    ):
+        return False
+    try:
+        actual = hashlib.sha256((store / name).read_bytes()).hexdigest()
+    except OSError:
+        return False
+    return actual == expected
+
+
 def _records():
     blobs = []
     store = store_dir()
@@ -186,7 +206,14 @@ def _records():
             rec = json.loads(blob)
         except Exception:
             continue
-        if isinstance(rec, dict) and rec.get("fingerprint"):
+        # Version 1.0 trennt Review-Lauf und Annahme. Alte Belege ohne Status
+        # duerfen das neue Gate nicht still oeffnen.
+        if (
+            isinstance(rec, dict)
+            and rec.get("fingerprint")
+            and rec.get("status") == "accepted"
+            and review_artifact_valid(rec, store)
+        ):
             out.append(rec)
     return sorted(out, key=lambda r: str(r.get("ts") or ""), reverse=True)
 
@@ -484,7 +511,9 @@ def main():
 
     known = records()
     if not known:
-        return fail(f"kein Cross-Model-Review fuer {len(changed)} geaenderte Code-Datei(en)")
+        return fail(
+            f"kein angenommener Cross-Model-Review fuer {len(changed)} geaenderte Code-Datei(en)"
+        )
 
     # Jeder Beleg zaehlt, nicht nur der juengste: im gemeinsamen Speicher liegen
     # auch die der Nachbar-Worktrees. Geprueft wird jeder gegen SEINE eigene
@@ -509,7 +538,7 @@ def main():
         )
 
     print(
-        f"REVIEW-GATE: OK (gegengelesen am {match.get('ts')}, "
+        f"REVIEW-GATE: OK (angenommen am {match.get('accepted_at', match.get('ts'))}, "
         f"{len(changed)} Code-Datei(en), Stand unveraendert)"
     )
     return 0

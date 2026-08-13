@@ -9,6 +9,7 @@ schon dachte. Der Wert liegt in der Modell-Diversitaet - nicht in Personas.
   tools/agent_review --commit HEAD        # ein bestimmter Commit
   tools/agent_review --repo kurier        # anderes Repo
   tools/agent_review --prompt "Fokus: Fehlerbehandlung in der API"
+  tools/agent_review --uncommitted --override-budget --reason "Nutzerfreigabe: P1"
 
 Das Ergebnis landet im gemeinsamen Review-Speicher (`review_gate.py --store`,
 per Default <git-common-dir>/workflow-guard/reviews/) und wird in
@@ -20,22 +21,42 @@ sonst stirbt der Beleg mit `git worktree remove` (siehe store_dir() im Gate).
 Backend ist die lokale codex-CLI (`codex exec review`). Fehlt sie, bricht das
 Script ehrlich ab, statt ein Review vorzutaeuschen.
 
+Pro Branch sind hoechstens zwei normale Review-Runden in einer offenen Serie
+erlaubt. Runde drei und spaeter starten nur mit --override-budget, einer
+Begruendung und ausdruecklicher Nutzerfreigabe. Eine angenommene Review-Datei
+schliesst die Serie; der naechste Auftrag beginnt wieder bei Runde eins.
+
 Ungetrackte Dateien werden vor dem Lauf per `git add -N` in den Diff gehoben und
 danach wieder zurueckgesetzt - siehe mark_intent_to_add(). Ohne das reviewte das
 Zweitmodell neue Dateien nicht, waehrend das Gate sie mitfingerprintete.
 """
 
 import argparse
-import datetime
+import contextlib
 import fcntl
+import hashlib
+import importlib.util
 import json
 import os
 import pathlib
 import re
 import shlex
-import shutil
 import subprocess
 import sys
+import uuid
+
+# codex_backend.py liegt neben diesem Script und traegt den Teil, den sich alle
+# drei Cross-Model-Werkzeuge teilen. Bewusst per Pfad geladen statt per
+# `import codex_backend`: unter dem Test-Loader steht dieses Verzeichnis nicht
+# in sys.path, und in den Ziel-Repos liegt scripts/ voller Projekt-Dateien - es
+# an sys.path[0] zu haengen koennte Stdlib-Module beschatten. .resolve() folgt
+# dem Symlink aus tools/.
+_BACKEND = pathlib.Path(__file__).resolve().parent / "codex_backend.py"
+if not _BACKEND.exists():
+    sys.exit(f"FEHLER: {_BACKEND} fehlt.\nUnvollstaendiger Sync: tools/guard sync")
+_spec = importlib.util.spec_from_file_location("guard_codex_backend", _BACKEND)
+codex = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(codex)
 
 # Bewusste Wahl, NICHT die codex-Konfiguration erben lassen:
 # ~/.codex/config.toml hat model_reasoning_effort = "low" - fuer interaktives
@@ -59,31 +80,8 @@ import sys
 # Kontingent selbst zu blockieren.
 DEFAULT_MODEL = "gpt-5.6-sol"
 
-# Effort ist bei "medium" gedeckelt (Nutzervorgabe 2026-07-14, bei der
-# Umstellung auf sol am 2026-07-31 ausdruecklich bestaetigt). "high" ist bewusst
-# KEINE Option: ein Review-Lauf auf hohem Effort frisst spuerbar Kontingent, und
-# ein Gate, das das Kontingent leerlaeuft, blockiert am Ende alles. Mit sol
-# gilt das erst recht. Nicht die codex-Konfiguration erben lassen - die steht
-# auf "low".
-EFFORT_CHOICES = ["low", "medium"]
-DEFAULT_EFFORT = "medium"
-
-
-def now():
-    return datetime.datetime.now().isoformat(timespec="seconds")
-
-
-def record_command(repo, command, exit_code):
-    agents = repo / ".agents"
-    agents.mkdir(exist_ok=True)
-    with (agents / "command_runs.jsonl").open("a", encoding="utf-8") as f:
-        f.write(
-            json.dumps(
-                {"command": command, "exit_code": exit_code, "ts": now()},
-                ensure_ascii=False,
-            )
-            + "\n"
-        )
+# Effort-Deckel und Begruendung stehen in codex_backend.py - mit sol gilt der
+# Deckel erst recht, aber es ist derselbe Kontingent-Pool und dieselbe Regel.
 
 
 class GateQueryError(RuntimeError):
@@ -120,6 +118,10 @@ def gate_query(repo, flag):
 # finden. Es ist eine kurze Historie, kein Archiv - sie existiert nur, damit
 # parallele Worktrees sich nicht gegenseitig entwerten.
 RECORD_HISTORY = 20
+PENDING_PREFIX = "pending-"
+REVIEW_ROUND_LIMIT = 2
+BUDGET_STATE_VERSION = 1
+BUDGET_PREFIX = "review-budget-"
 
 
 def review_store(repo):
@@ -213,6 +215,268 @@ def append_record(store, record):
             tmp = log.with_name(log.name + ".tmp")
             tmp.write_text("\n".join(lines[-RECORD_HISTORY:]) + "\n", encoding="utf-8")
             os.replace(tmp, log)
+
+
+def sha256_file(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def write_json_atomic(path, value):
+    """Eine JSON-Datei ohne halb geschriebenen Zwischenstand ersetzen."""
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(
+        json.dumps(value, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(tmp, path)
+
+
+class ReviewBudgetError(RuntimeError):
+    """Die Kostenbremse konnte nicht verlaesslich gelesen oder geschrieben werden."""
+
+
+def review_budget_key(repo):
+    """Eine stabile, kollisionsarme Budget-ID pro Branch beziehungsweise Detached-Stand."""
+    branch = subprocess.run(
+        ["git", "symbolic-ref", "--short", "-q", "HEAD"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    label = (branch.stdout or "").strip()
+    if branch.returncode != 0 or not label:
+        label = f"detached-{git_head(repo)[:12]}"
+    digest = hashlib.sha256(label.encode("utf-8")).hexdigest()[:10]
+    return f"{safe_name(label)[:48]}-{digest}"
+
+
+def budget_paths(store, key):
+    """Status und Sperre fuer eine Review-Serie im gemeinsamen Git-Speicher."""
+    if not key or pathlib.Path(key).name != key:
+        raise ReviewBudgetError("ungueltige Review-Budget-ID")
+    stem = f"{BUDGET_PREFIX}{key}"
+    return store / f"{stem}.json", store / f"{stem}.lock"
+
+
+def read_budget_state(path):
+    """Budget-Status lesen; ein kaputter Status darf das Limit nicht zuruecksetzen."""
+    if not path.exists():
+        return None
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ReviewBudgetError(f"Review-Budget ist nicht lesbar: {exc}") from exc
+    if (
+        not isinstance(state, dict)
+        or state.get("version") != BUDGET_STATE_VERSION
+        or state.get("status") not in {"active", "closed"}
+        or not isinstance(state.get("rounds"), list)
+    ):
+        raise ReviewBudgetError("Review-Budget hat ein ungueltiges Format")
+    return state
+
+
+def reserve_review_round(store, repo, base, override=False, reason=None):
+    """Eine Runde atomar reservieren, bevor das kostenpflichtige Modell startet."""
+    store.mkdir(parents=True, exist_ok=True)
+    key = review_budget_key(repo)
+    state_path, lock_path = budget_paths(store, key)
+    with lock_path.open("a", encoding="utf-8") as lock:
+        try:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        except OSError as exc:
+            raise ReviewBudgetError(f"Review-Budget konnte nicht gesperrt werden: {exc}") from exc
+
+        state = read_budget_state(state_path)
+        if state is None or state["status"] == "closed":
+            state = {
+                "version": BUDGET_STATE_VERSION,
+                "status": "active",
+                "key": key,
+                "series_id": uuid.uuid4().hex,
+                "branch": key.rsplit("-", 1)[0],
+                "started_at": codex.now(),
+                "round_limit": REVIEW_ROUND_LIMIT,
+                "rounds": [],
+            }
+        elif not state.get("series_id"):
+            # Fruehe 1.0.1-Entwicklungsstaende hatten noch keine Serien-ID.
+            # Einmalig ergaenzen, damit die zweite Runde den ersten lokalen
+            # Budget-Eintrag sicher weiterverwenden kann.
+            state["series_id"] = uuid.uuid4().hex
+
+        used = len(state["rounds"])
+        clean_reason = (reason or "").strip()
+        if used >= REVIEW_ROUND_LIMIT and not override:
+            return {
+                "allowed": False,
+                "key": key,
+                "used": used,
+                "limit": REVIEW_ROUND_LIMIT,
+            }
+        if override and not clean_reason:
+            raise ReviewBudgetError("Budget-Override braucht eine nicht leere Begruendung")
+
+        number = used + 1
+        reservation_id = uuid.uuid4().hex
+        state["rounds"].append(
+            {
+                "round": number,
+                "reservation_id": reservation_id,
+                "reserved_at": codex.now(),
+                "base": base,
+                "override": bool(override),
+                "override_reason": clean_reason or None,
+            }
+        )
+        write_json_atomic(state_path, state)
+        return {
+            "allowed": True,
+            "key": key,
+            "series_id": state["series_id"],
+            "reservation_id": reservation_id,
+            "round": number,
+            "limit": REVIEW_ROUND_LIMIT,
+            "override": bool(override),
+        }
+
+
+def release_review_round(store, key, series_id, reservation_id, reason):
+    """Einen Modellstart zuruecknehmen, der nachweislich nie stattgefunden hat."""
+    state_path, lock_path = budget_paths(store, key)
+    with lock_path.open("a", encoding="utf-8") as lock:
+        try:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        except OSError as exc:
+            raise ReviewBudgetError(f"Review-Budget konnte nicht gesperrt werden: {exc}") from exc
+        state = read_budget_state(state_path)
+        if state is None or state["status"] != "active" or state.get("series_id") != series_id:
+            return False
+        for index, round_record in enumerate(state["rounds"]):
+            if round_record.get("reservation_id") == reservation_id:
+                released = state["rounds"].pop(index)
+                state.setdefault("released", []).append(
+                    {
+                        **released,
+                        "released_at": codex.now(),
+                        "release_reason": reason,
+                    }
+                )
+                write_json_atomic(state_path, state)
+                return True
+        return False
+
+
+def close_review_budget(store, key, series_id, review_name, accepted_at):
+    """Nur die Serie schliessen, aus der der angenommene Review stammt."""
+    state_path, lock_path = budget_paths(store, key)
+    with lock_path.open("a", encoding="utf-8") as lock:
+        try:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        except OSError as exc:
+            raise ReviewBudgetError(f"Review-Budget konnte nicht gesperrt werden: {exc}") from exc
+        state = read_budget_state(state_path)
+        if state is None or state["status"] != "active" or state.get("series_id") != series_id:
+            return False
+        state["status"] = "closed"
+        state["closed_at"] = accepted_at
+        state["accepted_review"] = review_name
+        write_json_atomic(state_path, state)
+        return True
+
+
+def pending_path_for(store, review_name):
+    if pathlib.Path(review_name).name != review_name:
+        raise ValueError("ungueltiger Review-Dateiname")
+    return store / f"{PENDING_PREFIX}{review_name}.json"
+
+
+def accept_review(repo, review_name, reason):
+    """Einen benannten Review fuer exakt seinen unveraenderten Stand annehmen."""
+    if not reason or not reason.strip():
+        print("FEHLER: --reason darf nicht leer sein.", file=sys.stderr)
+        return 2
+
+    store = review_store(repo)
+    try:
+        pending_path = pending_path_for(store, review_name)
+    except ValueError:
+        print("FEHLER: Review-Dateiname ist ungueltig.", file=sys.stderr)
+        return 2
+    try:
+        pending = json.loads(pending_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        print("FEHLER: kein lesbarer pending Review vorhanden.", file=sys.stderr)
+        return 2
+
+    required = {"base", "head", "fingerprint", "file", "review_sha256"}
+    if not isinstance(pending, dict) or not required.issubset(pending):
+        print("FEHLER: pending Review ist unvollstaendig.", file=sys.stderr)
+        return 2
+
+    if pending["file"] != review_name:
+        print("FEHLER: Review-Dateiname ist ungueltig.", file=sys.stderr)
+        return 2
+    review_file = store / review_name
+    try:
+        current_sha = sha256_file(review_file)
+    except OSError:
+        print("FEHLER: Review-Text fehlt.", file=sys.stderr)
+        return 2
+    if current_sha != pending["review_sha256"]:
+        print("FEHLER: Review-Text wurde seit dem Lauf veraendert.", file=sys.stderr)
+        return 2
+
+    current = reviewed_state(repo, pending["base"])
+    expected = (pending["head"], pending["fingerprint"])
+    if current != expected:
+        print(
+            "FEHLER: Code-Stand hat sich seit dem Review geaendert. Review wiederholen.",
+            file=sys.stderr,
+        )
+        return 2
+
+    accepted_at = codex.now()
+    record = {
+        **pending,
+        "status": "accepted",
+        "reviewed_at": pending.get("ts"),
+        "ts": accepted_at,
+        "accepted_at": accepted_at,
+        "acceptance_reason": reason.strip(),
+    }
+    write_json_atomic(store / "last_review.json", record)
+    append_record(store, record)
+    budget_key = pending.get("review_budget_key")
+    budget_series = pending.get("review_budget_series")
+    if budget_key and budget_series:
+        try:
+            close_review_budget(store, budget_key, budget_series, review_name, accepted_at)
+        except ReviewBudgetError as exc:
+            # Die Annahme bleibt fachlich gueltig. Die Kostenbremse faellt aber
+            # geschlossen aus: ein offener/kaputter Status erlaubt keine neue
+            # automatische Serie und muss sichtbar repariert werden.
+            print(f"WARNUNG: Review-Budget blieb offen: {exc}", file=sys.stderr)
+    with contextlib.suppress(OSError):
+        pending_path.unlink()
+    codex.record_command(repo, "tools/agent_review --accept", 0)
+    print(f"Review angenommen: {review_name}")
+    return 0
+
+
+def accept_last_review(repo, reason):
+    """Kompatibilitaetsweg: nur bei genau einem pending Review eindeutig."""
+    store = review_store(repo)
+    pending = sorted(store.glob(f"{PENDING_PREFIX}*.json")) if store.exists() else []
+    if len(pending) != 1:
+        print(
+            "FEHLER: --accept-last ist nur bei genau einem pending Review eindeutig. "
+            "Nutze --accept <review-datei>.",
+            file=sys.stderr,
+        )
+        return 2
+    name = pending[0].name[len(PENDING_PREFIX) : -len(".json")]
+    return accept_review(repo, name, reason)
 
 
 def gate_answer(repo, *flags):
@@ -443,21 +707,6 @@ def unmark_intent_to_add(repo, paths):
         )
 
 
-def find_codex():
-    """Die Tool-Shell hat nicht denselben PATH wie die Login-Shell."""
-    exe = shutil.which("codex")
-    if exe:
-        return exe
-    for cand in (
-        "/usr/local/bin/codex",
-        "/opt/homebrew/bin/codex",
-        os.path.expanduser("~/.local/bin/codex"),
-    ):
-        if os.path.isfile(cand) and os.access(cand, os.X_OK):
-            return cand
-    return None
-
-
 def main():
     ap = argparse.ArgumentParser(add_help=True)
     ap.add_argument("--repo", default=".", help="Repo-Pfad (Default: aktuelles Verzeichnis)")
@@ -474,15 +723,34 @@ def main():
     )
     ap.add_argument("--prompt", help="zusaetzlicher Fokus fuer den Reviewer")
     ap.add_argument(
+        "--accept",
+        metavar="REVIEW-DATEI",
+        help="benannten pending Review nach der Triage annehmen",
+    )
+    ap.add_argument(
+        "--accept-last",
+        action="store_true",
+        help="letzten pending Review nach der Triage fuer den aktuellen Stand annehmen",
+    )
+    ap.add_argument(
+        "--override-budget",
+        action="store_true",
+        help="weitere Review-Runde nach dem harten Limit; nur nach Nutzerfreigabe",
+    )
+    ap.add_argument(
+        "--reason",
+        help="nicht leere Begruendung fuer Annahme oder ausdruecklichen Budget-Override",
+    )
+    ap.add_argument(
         "--model",
         default=DEFAULT_MODEL,
         help=f"Modell des Zweitlesers (Default: {DEFAULT_MODEL})",
     )
     ap.add_argument(
         "--effort",
-        default=DEFAULT_EFFORT,
-        choices=EFFORT_CHOICES,
-        help=f"Reasoning-Effort, gedeckelt bei medium (Default: {DEFAULT_EFFORT})",
+        default=codex.DEFAULT_EFFORT,
+        choices=codex.EFFORT_CHOICES,
+        help=f"Reasoning-Effort, gedeckelt bei medium (Default: {codex.DEFAULT_EFFORT})",
     )
     args = ap.parse_args()
 
@@ -491,9 +759,29 @@ def main():
         print(f"FEHLER: kein Git-Repo: {repo}", file=sys.stderr)
         return 2
 
+    if args.accept and args.accept_last:
+        print("FEHLER: --accept und --accept-last nicht kombinieren.", file=sys.stderr)
+        return 2
+    if args.accept or args.accept_last:
+        if args.base or args.commit or args.uncommitted or args.prompt or args.override_budget:
+            print("FEHLER: Annahme nicht mit Review-Scope kombinieren.", file=sys.stderr)
+            return 2
+        if args.accept:
+            return accept_review(repo, args.accept, args.reason)
+        return accept_last_review(repo, args.reason)
+    if args.override_budget and not (args.reason or "").strip():
+        print("FEHLER: --override-budget braucht --reason.", file=sys.stderr)
+        return 2
+    if args.reason and not args.override_budget:
+        print(
+            "FEHLER: --reason braucht --accept, --accept-last oder --override-budget.",
+            file=sys.stderr,
+        )
+        return 2
+
     # Fehlt das Werkzeug, wird hier abgebrochen - ein Review, das nicht laufen
     # kann, darf nicht so aussehen, als haette es nichts gefunden.
-    backend_bin = find_codex()
+    backend_bin = codex.find_codex()
     if not backend_bin:
         print(
             "FEHLER: codex-CLI nicht gefunden. Kein Zweitmodell = kein Review.",
@@ -532,7 +820,7 @@ def main():
                 file=sys.stderr,
             )
             print("Lieber kein Review als ein falscher Beleg.", file=sys.stderr)
-            record_command(repo, "agent_review --unreviewed", 2)
+            codex.record_command(repo, "agent_review --unreviewed", 2)
             return 2
         if base and base != head:
             scope_flags = ["--base", base]
@@ -544,11 +832,11 @@ def main():
             mode = "uncommitted"
         releases_worktree = True
 
+    # Eigenes Kommando statt codex.read_only_cmd(): agent_review nutzt den
+    # `review`-Unterbefehl der codex-CLI mit Scope-Flags, keinen freien Prompt.
     cmd = [backend_bin, "exec", "review", "--model", args.model]
-    # Effort pro Aufruf setzen, statt den globalen "low"-Default zu erben.
-    # -c ueberschreibt config.toml nur fuer diesen Lauf; die interaktive
-    # codex-Nutzung des Users bleibt unangetastet.
-    cmd += ["-c", f"model_reasoning_effort={args.effort!r}".replace("'", '"')]
+    cmd += codex.internal_flags()
+    cmd += codex.effort_flag(args.effort)
     # Die codex-CLI erlaubt den Positional-Prompt nicht zusammen mit
     # --base/--commit/--uncommitted (Custom-Instructions sind dort ein eigener,
     # vierter Review-Modus). Mit --prompt wird der Scope deshalb in die
@@ -590,84 +878,108 @@ def main():
                 file=sys.stderr,
             )
             print("Lieber kein Review als ein falscher Beleg.", file=sys.stderr)
-            record_command(repo, f"agent_review --{mode.split('-')[0]}", 2)
+            codex.record_command(repo, f"agent_review --{mode.split('-')[0]}", 2)
             return 2
         marked = mark_intent_to_add(repo, untracked)
     if marked is None:
-        record_command(repo, f"agent_review --{mode.split('-')[0]}", 2)
+        codex.record_command(repo, f"agent_review --{mode.split('-')[0]}", 2)
+        return 2
+
+    reviews = review_store(repo)
+    try:
+        budget = reserve_review_round(
+            reviews,
+            repo,
+            pinned_base or base or args.base or args.commit or head,
+            override=args.override_budget,
+            reason=args.reason,
+        )
+    except ReviewBudgetError as exc:
+        unmark_intent_to_add(repo, marked)
+        print(f"REVIEW-BUDGET: FEHLER - {exc}", file=sys.stderr)
+        print("Kein Zweitmodell gestartet.", file=sys.stderr)
+        codex.record_command(repo, "agent_review budget-error", 2)
+        return 2
+    if not budget["allowed"]:
+        unmark_intent_to_add(repo, marked)
+        print(
+            f"REVIEW-BUDGET: LIMIT ERREICHT ({budget['used']}/{budget['limit']}).",
+            file=sys.stderr,
+        )
+        print("Kein Zweitmodell gestartet und kein Kontingent verbraucht.", file=sys.stderr)
+        print(
+            "Nur nach ausdruecklicher Nutzerfreigabe: "
+            'scripts/agent_review --uncommitted --override-budget --reason "..."',
+            file=sys.stderr,
+        )
+        codex.record_command(repo, "agent_review budget-blocked", 2)
         return 2
 
     print(
         f"Zweitmodell liest gegen: {repo.name} ({mode}) [codex: {args.model}, effort={args.effort}]"
     )
+    if budget["override"]:
+        print(f"  Review-Budget: Runde {budget['round']} (ausdruecklich freigegeben)")
+    else:
+        print(f"  Review-Budget: Runde {budget['round']}/{budget['limit']}")
     if marked:
         print(f"  + {len(marked)} ungetrackte Datei(en) in den Diff gehoben")
 
     try:
         print(f"$ {' '.join(cmd)}\n")
-        # Ueber die LOGIN-Shell starten: codex braucht CODEX_HOME/
-        # OPENAI_API_KEY aus der zshrc. Ein direkter subprocess erbt die
-        # nicht und laeuft in einen irrefuehrenden "Login abgelaufen"-Fehler.
-        shell_cmd = " ".join(shlex.quote(c) for c in cmd)
-        proc = subprocess.run(["zsh", "-lic", shell_cmd], cwd=repo, capture_output=True, text=True)
-        output = (proc.stdout or "") + (proc.stderr or "")
-        returncode = proc.returncode
+        try:
+            output, returncode = codex.run(cmd, repo)
+        except OSError:
+            try:
+                release_review_round(
+                    reviews,
+                    budget["key"],
+                    budget["series_id"],
+                    budget["reservation_id"],
+                    "codex-Prozess konnte nicht gestartet werden",
+                )
+            except ReviewBudgetError as exc:
+                print(f"WARNUNG: Review-Runde blieb reserviert: {exc}", file=sys.stderr)
+            raise
     finally:
+        # Auch wenn der Lauf abstuerzt: die per `git add -N` gesetzten Markierungen
+        # gehoeren zurueckgenommen, sonst bleibt der Index veraendert liegen.
         unmark_intent_to_add(repo, marked)
 
-    # NUR echte codex-Fehlerzeilen auswerten, nicht die gesamte Ausgabe.
-    #
-    # Vorher wurde im kompletten Output gesucht - und der enthaelt den REVIEWTEN
-    # CODE. Sobald Codex dieses Script selbst reviewte, las der Detektor seine
-    # eigenen Suchmuster ("token_expired", "401 Unauthorized", ...) im Diff und
-    # meldete faelschlich "Login abgelaufen". Ein Mechanismus, der sich selbst
-    # liest und daran scheitert. codex meldet echte Fehler als "ERROR: ..." und
-    # endet dann mit exit != 0 - beides muss zutreffen.
-    error_lines = "\n".join(
-        line for line in output.splitlines() if line.strip().startswith("ERROR:")
-    )
-    failed = returncode != 0
-
-    auth_broken = failed and any(
-        s in error_lines
-        for s in (
-            "token_expired",
-            "401 Unauthorized",
-            "refresh token was already used",
-            "Please log out and sign in again",
+    failure = codex.classify_failure(output, returncode)
+    if failure:
+        try:
+            release_review_round(
+                reviews,
+                budget["key"],
+                budget["series_id"],
+                budget["reservation_id"],
+                f"codex-Lauf nicht gestartet: {failure}",
+            )
+        except ReviewBudgetError as exc:
+            # Der Status bleibt im Zweifel restriktiv. Ein fehlgeschlagenes
+            # Freigeben darf nie still eine zusaetzliche Runde erlauben.
+            print(f"WARNUNG: Review-Runde blieb reserviert: {exc}", file=sys.stderr)
+        codex.report_failure(
+            failure,
+            "REVIEW",
+            output,
+            extra=(
+                [
+                    "Optionen: warten bis zum Reset, Plan upgraden, oder das Gate im Repo "
+                    "abschalten (.agents/review_required loeschen)."
+                ]
+                if failure == "quota"
+                else []
+            ),
         )
-    )
-    if auth_broken:
-        print("REVIEW NICHT GELAUFEN: codex-Login abgelaufen.", file=sys.stderr)
-        print("Behebung (interaktives Terminal noetig):  codex login", file=sys.stderr)
-        record_command(repo, f"agent_review --{mode.split('-')[0]}", 2)
-        return 2
-
-    # Kontingent erschoepft sieht sonst aus wie ein Review, das nichts gefunden hat.
-    # Auch hier nur echte Fehlerzeilen, aus demselben Grund.
-    quota_hit = failed and any(
-        s in error_lines
-        for s in ("hit your usage limit", "usage_limit_reached", "rate_limit_exceeded")
-    )
-    if quota_hit:
-        print("REVIEW NICHT GELAUFEN: codex-Kontingent erschoepft.", file=sys.stderr)
-        for line in output.splitlines():
-            if "usage limit" in line:
-                print(f"  {line.strip()}", file=sys.stderr)
-                break
-        print(
-            "Optionen: warten bis zum Reset, Plan upgraden, oder das Gate im Repo "
-            "abschalten (.agents/review_required loeschen).",
-            file=sys.stderr,
-        )
-        record_command(repo, f"agent_review --{mode.split('-')[0]}", 2)
+        codex.record_command(repo, f"agent_review --{mode.split('-')[0]}", 2)
         return 2
 
     print(output)
 
-    reviews = review_store(repo)
     reviews.mkdir(parents=True, exist_ok=True)
-    stamp = now().replace(":", "").replace("-", "")
+    stamp = codex.now().replace(":", "").replace("-", "")
     # `mode` traegt den Branch- bzw. Commit-Namen und darf so nicht in einen
     # Dateinamen: `--base origin/main` ergab "base-origin/main.md", und os.open
     # brach mit "No such file or directory" ab - der Review war gelaufen, der
@@ -675,7 +987,7 @@ def main():
     out_file = claim_file(reviews, f"{stamp}-{safe_name(mode)}.md")
     out_file.write_text(
         f"# Cross-Model-Review ({mode})\n\n"
-        f"- Zeitpunkt: {now()}\n"
+        f"- Zeitpunkt: {codex.now()}\n"
         f"- Repo: {repo.name}\n"
         f"- Backend: codex ({backend_bin}, Modell {args.model})\n"
         f"- Exit: {returncode}\n\n"
@@ -683,9 +995,10 @@ def main():
         encoding="utf-8",
     )
 
-    record_command(repo, f"tools/agent_review --{mode.split('-')[0]}", returncode)
+    codex.record_command(repo, f"tools/agent_review --{mode.split('-')[0]}", returncode)
 
-    # Nur ein GELUNGENES Review des ARBEITSBAUMS darf ihn freigeben.
+    # Ein gelungener Review des Arbeitsbaums erzeugt nur einen pending Beleg.
+    # Freigegeben wird er erst nach sichtbarer Triage mit --accept.
     #
     # Frueher wurde last_review.json auch nach --commit/--base geschrieben - mit
     # dem Fingerabdruck des aktuellen Arbeitsbaums, obwohl Codex einen ganz
@@ -721,18 +1034,23 @@ def main():
             )
         elif fp and base_covered:
             record = {
-                "ts": now(),
+                "ts": codex.now(),
+                "status": "pending",
                 "mode": mode,
                 "base": base_covered,
                 "head": head_now,
                 "fingerprint": fp,
                 "file": out_file.name,
+                "review_sha256": sha256_file(out_file),
+                "review_round": budget["round"],
+                "review_budget_key": budget["key"],
+                "review_budget_series": budget["series_id"],
             }
-            (reviews / "last_review.json").write_text(
-                json.dumps(record, ensure_ascii=False, indent=2) + "\n",
-                encoding="utf-8",
+            write_json_atomic(pending_path_for(reviews, out_file.name), record)
+            print(
+                "HINWEIS: Review lief, ist aber noch nicht angenommen. Nach der Triage:\n"
+                f'  scripts/agent_review --accept {out_file.name} --reason "Begruendung"'
             )
-            append_record(reviews, record)
     elif returncode == 0:
         print(
             f"HINWEIS: {mode}-Review gibt den Stand NICHT frei "

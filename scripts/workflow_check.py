@@ -2,12 +2,13 @@
 """Struktur-Guard: Pflichtdateien, Pflichtabschnitte, Kopfzeilen, keine Platzhalter.
 
 Rein strukturell und damit in jedem Repo identisch (per md5 pruefbar).
-Technische Projektchecks gehoeren NICHT hierher, sondern nach
-.agents/project_check - agent_finish.py fuehrt sie aus.
+Der technische Befehl wird hier nicht ausgefuehrt. Seine Existenz, sein Inhalt
+und seine Git-Versionierung gehoeren aber zur Struktur des Guards.
 """
 
 import pathlib
 import re
+import subprocess
 import sys
 
 # Am Script-Pfad verankern, nicht am cwd (Hook-Aufrufe haben beliebige cwd).
@@ -15,6 +16,11 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 # Datei -> Liste von Markierungen, die im Text vorkommen muessen
 REQUIRED_FILES = {
+    "AGENTS.md": [
+        "## Abschluss",
+        "## Belegpflicht",
+        "python3 scripts/agent_finish.py --auto-claims",
+    ],
     "CLAUDE.md": ["## Abschluss", "## Belegpflicht"],
     "WORKFLOWS.md": ["## "],
     "KNOWN_ERRORS.md": [],
@@ -27,7 +33,15 @@ REQUIRED_SCRIPTS = [
     "scripts/claim_check.py",
     "scripts/doc_drift_check.py",
     "scripts/review_gate.py",
+    "scripts/codex_stop_hook.py",
     "scripts/agent_review",
+    # agent_review laedt das zur Laufzeit aus demselben Verzeichnis. Fehlt es,
+    # ist der Review-Befehl kaputt - und ohne diesen Eintrag meldete der
+    # Struktur-Guard das Repo trotzdem als in Ordnung. In Repos ohne scharfes
+    # Review-Gate liefe der Abschluss dann gruen durch, obwohl das Werkzeug,
+    # das ihn absichern soll, gar nicht startet. (Cross-Model-Review
+    # 2026-08-05, P2.)
+    "scripts/codex_backend.py",
 ]
 
 # Unausgefuellte Templates sind schlimmer als keine Doku: sie lesen sich wie Wahrheit.
@@ -62,6 +76,24 @@ def check_required_scripts(problems):
             problems.append(f"fehlt: {s}")
 
 
+def check_project_check(problems):
+    rel = ".agents/project_check"
+    path = ROOT / rel
+    if not path.exists():
+        problems.append(f"fehlt: {rel}")
+        return
+    if not path.read_text(encoding="utf-8", errors="replace").strip():
+        problems.append(f"{rel}: ist leer")
+        return
+    tracked = subprocess.run(
+        ["git", "ls-files", "--error-unmatch", rel],
+        cwd=ROOT,
+        capture_output=True,
+    )
+    if tracked.returncode != 0:
+        problems.append(f"{rel}: ist nicht in Git versioniert")
+
+
 def check_placeholders(problems):
     for fname in PLACEHOLDER_SCOPE:
         p = ROOT / fname
@@ -94,6 +126,7 @@ def main():
     problems = []
     check_required_files(problems)
     check_required_scripts(problems)
+    check_project_check(problems)
     check_headers(problems)
     check_placeholders(problems)
 

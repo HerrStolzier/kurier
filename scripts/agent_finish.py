@@ -5,7 +5,7 @@ Reihenfolge:
   1. Struktur-Guard (workflow_check.py)
   2. Doku-Drift-Gate (doc_drift_check.py) - behauptete Pfade muessen existieren
   3. Review-Gate (review_gate.py) - opt-in via .agents/review_required
-  4. Technischer Projektcheck (Befehl aus .agents/project_check, optional)
+  4. Technischer Projektcheck (Befehl aus .agents/project_check, Pflicht)
   5. Optional: Claim-Check (--auto-claims)
   6. Lauf-Log nach .agents/finish_runs.jsonl
 
@@ -78,16 +78,31 @@ def main():
     # 3) Cross-Model-Review (nur wenn .agents/review_required existiert)
     steps.append(("review_gate", run("python3 scripts/review_gate.py")))
 
-    # 4) Technischer Projektcheck (optional)
+    # 4) Technischer Projektcheck (Pflicht und in Git versioniert)
     pc = AGENTS / "project_check"
-    if pc.exists() and pc.read_text(encoding="utf-8").strip():
+    rel_pc = ".agents/project_check"
+    tracked = (
+        subprocess.run(
+            ["git", "ls-files", "--error-unmatch", rel_pc],
+            cwd=ROOT,
+            capture_output=True,
+        ).returncode
+        == 0
+    )
+    if pc.exists() and pc.read_text(encoding="utf-8").strip() and tracked:
         cmd = pc.read_text(encoding="utf-8").strip()
         crc = run(cmd)
         record_command(cmd, crc)
         steps.append(("project_check", crc))
     else:
-        print("project_check: uebersprungen (keine .agents/project_check) - Grund dokumentieren")
-        steps.append(("project_check_skipped", 0))
+        if not pc.exists():
+            reason = "fehlt"
+        elif not pc.read_text(encoding="utf-8").strip():
+            reason = "ist leer"
+        else:
+            reason = "ist nicht in Git versioniert"
+        print(f"project_check: FEHLER ({rel_pc} {reason})", file=sys.stderr)
+        steps.append(("project_check", 1))
 
     # 4) Claims
     if args.auto_claims:

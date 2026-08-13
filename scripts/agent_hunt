@@ -18,24 +18,29 @@ ehrlich ab, statt eine Analyse vorzutaeuschen.
 """
 
 import argparse
-import datetime
-import json
-import os
+import importlib.util
 import pathlib
 import re
-import shlex
-import shutil
-import subprocess
 import sys
+
+# codex_backend.py liegt neben diesem Script und traegt den Teil, den sich alle
+# drei Cross-Model-Werkzeuge teilen. Bewusst per Pfad geladen statt per
+# `import codex_backend`: unter dem Test-Loader steht dieses Verzeichnis nicht
+# in sys.path, und in den Ziel-Repos liegt scripts/ voller Projekt-Dateien - es
+# an sys.path[0] zu haengen koennte Stdlib-Module beschatten. .resolve() folgt
+# dem Symlink aus tools/.
+_BACKEND = pathlib.Path(__file__).resolve().parent / "codex_backend.py"
+if not _BACKEND.exists():
+    sys.exit(f"FEHLER: {_BACKEND} fehlt.\nUnvollstaendiger Sync: tools/guard sync")
+_spec = importlib.util.spec_from_file_location("guard_codex_backend", _BACKEND)
+codex = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(codex)
 
 # Bewusst terra, NICHT sol: agent_review laeuft seit 2026-07-31 auf sol, weil
 # es das Gate bedient und ein Fehler dort am teuersten ist. Hier bleibt terra.
 # Alle drei Werkzeuge teilen EINEN Kontingent-Pool - sol ueberall waere der
 # schnellste Weg, das Review-Gate per leerem Kontingent selbst zu blockieren.
-# Effort bleibt bei "medium" gedeckelt, gleiche Begruendung wie dort.
 DEFAULT_MODEL = "gpt-5.6-terra"
-EFFORT_CHOICES = ["low", "medium"]
-DEFAULT_EFFORT = "medium"
 
 HUNT_INSTRUCTIONS = """Du bist ein Root-Cause-Ermittler in einem fremden Repository.
 Deine Aufgabe ist DIAGNOSE, nicht Reparatur. Du arbeitest read-only.
@@ -68,38 +73,6 @@ findest, sag das ehrlich - eine leere Hypothesenliste ist besser als eine
 erfundene."""
 
 
-def now():
-    return datetime.datetime.now().isoformat(timespec="seconds")
-
-
-def record_command(repo, command, exit_code):
-    agents = repo / ".agents"
-    agents.mkdir(exist_ok=True)
-    with (agents / "command_runs.jsonl").open("a", encoding="utf-8") as f:
-        f.write(
-            json.dumps(
-                {"command": command, "exit_code": exit_code, "ts": now()},
-                ensure_ascii=False,
-            )
-            + "\n"
-        )
-
-
-def find_codex():
-    """Die Tool-Shell hat nicht denselben PATH wie die Login-Shell."""
-    exe = shutil.which("codex")
-    if exe:
-        return exe
-    for cand in (
-        "/usr/local/bin/codex",
-        "/opt/homebrew/bin/codex",
-        os.path.expanduser("~/.local/bin/codex"),
-    ):
-        if os.path.isfile(cand) and os.access(cand, os.X_OK):
-            return cand
-    return None
-
-
 def main():
     ap = argparse.ArgumentParser(add_help=True)
     ap.add_argument("problem", help="Beschreibung des beobachteten Fehlverhaltens")
@@ -115,9 +88,9 @@ def main():
     )
     ap.add_argument(
         "--effort",
-        default=DEFAULT_EFFORT,
-        choices=EFFORT_CHOICES,
-        help=f"Reasoning-Effort, gedeckelt bei medium (Default: {DEFAULT_EFFORT})",
+        default=codex.DEFAULT_EFFORT,
+        choices=codex.EFFORT_CHOICES,
+        help=f"Reasoning-Effort, gedeckelt bei medium (Default: {codex.DEFAULT_EFFORT})",
     )
     args = ap.parse_args()
 
@@ -126,7 +99,7 @@ def main():
         print(f"FEHLER: kein Git-Repo: {repo}", file=sys.stderr)
         return 2
 
-    backend_bin = find_codex()
+    backend_bin = codex.find_codex()
     if not backend_bin:
         print("FEHLER: codex-CLI nicht gefunden. Kein Zweitmodell = kein Hunt.", file=sys.stderr)
         print("Keine Analyse vorzutaeuschen ist besser als eine erfundene.", file=sys.stderr)
@@ -138,74 +111,25 @@ def main():
     print(f"Zweitmodell ermittelt in: {repo.name} [codex: {args.model}, effort={args.effort}]")
     print(f"Problem: {args.problem}\n")
 
-    # Read-only-Sandbox: der Ermittler diagnostiziert, er repariert nicht.
-    # Damit kann er auch keinen Zustand zerstoeren, waehrend die Session
-    # parallel am selben Arbeitsbaum haengt.
-    cmd = [
-        backend_bin,
-        "exec",
-        "--sandbox",
-        "read-only",
-        "--model",
-        args.model,
-        "-c",
-        f'model_reasoning_effort="{args.effort}"',
-        prompt,
-    ]
-    # Ueber die LOGIN-Shell starten: codex braucht CODEX_HOME/OPENAI_API_KEY
-    # aus der zshrc. Ein direkter subprocess erbt die nicht und laeuft in
-    # einen irrefuehrenden "Login abgelaufen"-Fehler.
-    shell_cmd = " ".join(shlex.quote(c) for c in cmd)
-    proc = subprocess.run(["zsh", "-lic", shell_cmd], cwd=repo, capture_output=True, text=True)
-    output = (proc.stdout or "") + (proc.stderr or "")
-    returncode = proc.returncode
+    cmd = codex.read_only_cmd(backend_bin, args.model, args.effort, prompt)
+    output, returncode = codex.run(cmd, repo)
 
-    # NUR echte codex-Fehlerzeilen auswerten, nicht die gesamte Ausgabe - der
-    # Output enthaelt gelesenen REPO-CODE, und der kann die Suchmuster selbst
-    # enthalten (agent_review ist genau daran schon einmal gescheitert).
-    error_lines = "\n".join(
-        line for line in output.splitlines() if line.strip().startswith("ERROR:")
-    )
-    failed = returncode != 0
-
-    auth_broken = failed and any(
-        s in error_lines
-        for s in (
-            "token_expired",
-            "401 Unauthorized",
-            "refresh token was already used",
-            "Please log out and sign in again",
-        )
-    )
-    if auth_broken:
-        print("HUNT NICHT GELAUFEN: codex-Login abgelaufen.", file=sys.stderr)
-        print("Behebung (interaktives Terminal noetig):  codex login", file=sys.stderr)
-        record_command(repo, "agent_hunt", 2)
-        return 2
-
-    quota_hit = failed and any(
-        s in error_lines
-        for s in ("hit your usage limit", "usage_limit_reached", "rate_limit_exceeded")
-    )
-    if quota_hit:
-        print("HUNT NICHT GELAUFEN: codex-Kontingent erschoepft.", file=sys.stderr)
-        for line in output.splitlines():
-            if "usage limit" in line:
-                print(f"  {line.strip()}", file=sys.stderr)
-                break
-        record_command(repo, "agent_hunt", 2)
+    failure = codex.classify_failure(output, returncode)
+    if failure:
+        codex.report_failure(failure, "HUNT", output)
+        codex.record_command(repo, "agent_hunt", 2)
         return 2
 
     print(output)
 
     hunts = repo / ".agents" / "hunts"
     hunts.mkdir(parents=True, exist_ok=True)
-    stamp = now().replace(":", "").replace("-", "")
+    stamp = codex.now().replace(":", "").replace("-", "")
     slug = re.sub(r"[^a-z0-9]+", "-", args.problem.lower())[:40].strip("-") or "hunt"
     out_file = hunts / f"{stamp}-{slug}.md"
     out_file.write_text(
         f"# Cross-Model-Hunt\n\n"
-        f"- Zeitpunkt: {now()}\n"
+        f"- Zeitpunkt: {codex.now()}\n"
         f"- Repo: {repo.name}\n"
         f"- Problem: {args.problem}\n"
         + (f"- Hinweis: {args.hint}\n" if args.hint else "")
@@ -215,7 +139,7 @@ def main():
         encoding="utf-8",
     )
 
-    record_command(repo, "tools/agent_hunt", returncode)
+    codex.record_command(repo, "tools/agent_hunt", returncode)
 
     print(f"\nHunt gespeichert: {out_file.relative_to(repo)}")
     if returncode != 0:

@@ -20,12 +20,21 @@ Repos kopiert und liegt dort neben ihren Aufrufern.
 """
 
 import datetime
+import importlib.util
 import json
 import os
+import pathlib
 import shlex
 import shutil
 import subprocess
 import sys
+
+_BUDGET = pathlib.Path(__file__).resolve().parent / "model_budget.py"
+if not _BUDGET.exists():
+    sys.exit(f"FEHLER: {_BUDGET} fehlt.\nUnvollstaendiger Sync: tools/guard sync")
+_budget_spec = importlib.util.spec_from_file_location("guard_model_budget", _BUDGET)
+budget = importlib.util.module_from_spec(_budget_spec)
+_budget_spec.loader.exec_module(budget)
 
 # Effort ist bei "medium" gedeckelt (Nutzervorgabe 2026-07-14, bei der
 # Umstellung von agent_review auf sol am 2026-07-31 ausdruecklich bestaetigt).

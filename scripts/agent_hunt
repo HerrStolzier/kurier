@@ -105,6 +105,21 @@ def main():
         print("Keine Analyse vorzutaeuschen ist besser als eine erfundene.", file=sys.stderr)
         return 2
 
+    try:
+        model_start = codex.budget.reserve(repo, "hunt", detail=args.problem)
+    except codex.budget.ModelBudgetError as exc:
+        print(f"MODELLBUDGET: FEHLER - {exc}", file=sys.stderr)
+        return 2
+    if not model_start["allowed"]:
+        print(
+            "MODELLBUDGET: LIMIT ERREICHT "
+            f"({model_start['total_used']}/{model_start['total_limit']} gesamt, "
+            f"Hunt {model_start['tool_used']}/{model_start['tool_limit']}).",
+            file=sys.stderr,
+        )
+        print("Kein Zweitmodell gestartet.", file=sys.stderr)
+        return 2
+
     hint_block = f"\nHinweis vom Auftraggeber:\n{args.hint}\n" if args.hint else ""
     prompt = HUNT_INSTRUCTIONS.format(problem=args.problem, hint_block=hint_block)
 
@@ -112,10 +127,16 @@ def main():
     print(f"Problem: {args.problem}\n")
 
     cmd = codex.read_only_cmd(backend_bin, args.model, args.effort, prompt)
-    output, returncode = codex.run(cmd, repo)
+    try:
+        output, returncode = codex.run(cmd, repo)
+    except OSError as exc:
+        codex.budget.release(repo, model_start, "codex-Prozess konnte nicht gestartet werden")
+        print(f"HUNT NICHT GELAUFEN: {exc}", file=sys.stderr)
+        return 2
 
     failure = codex.classify_failure(output, returncode)
     if failure:
+        codex.budget.release(repo, model_start, f"codex-Lauf nicht gestartet: {failure}")
         codex.report_failure(failure, "HUNT", output)
         codex.record_command(repo, "agent_hunt", 2)
         return 2

@@ -537,10 +537,17 @@ def main():
             "der Code hat sich seitdem geaendert"
         )
 
-    print(
-        f"REVIEW-GATE: OK (angenommen am {match.get('accepted_at', match.get('ts'))}, "
-        f"{len(changed)} Code-Datei(en), Stand unveraendert)"
-    )
+    if match.get("acceptance_mode") == "local_after_review_limit":
+        print(
+            "REVIEW-GATE: OK (lokaler Abschluss nach Review-Limit, "
+            f"angenommen am {match.get('accepted_at', match.get('ts'))}, "
+            f"{len(changed)} Code-Datei(en), finale Fixes nicht erneut modellgeprueft)"
+        )
+    else:
+        print(
+            f"REVIEW-GATE: OK (angenommen am {match.get('accepted_at', match.get('ts'))}, "
+            f"{len(changed)} Code-Datei(en), Stand unveraendert)"
+        )
     return 0
 
 

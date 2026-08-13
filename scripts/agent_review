@@ -464,6 +464,181 @@ def accept_review(repo, review_name, reason):
     return 0
 
 
+def final_finding_priorities(review_text):
+    """Prioritaeten nur aus dem letzten Ergebnisblock lesen, nicht aus Logs davor."""
+    marker = "Full review comments:"
+    final = review_text.rsplit(marker, 1)[-1] if marker in review_text else review_text
+    return [int(value) for value in re.findall(r"\[P([0-3])\]", final)]
+
+
+def local_closure_checks(repo):
+    """Deterministische Checks fuer Fixes nach der letzten erlaubten Modellrunde."""
+    project_check = repo / ".agents" / "project_check"
+    tracked = (
+        subprocess.run(
+            ["git", "ls-files", "--error-unmatch", ".agents/project_check"],
+            cwd=repo,
+            capture_output=True,
+        ).returncode
+        == 0
+    )
+    if not project_check.is_file() or not tracked:
+        return None, "versionierte .agents/project_check fehlt"
+    command = project_check.read_text(encoding="utf-8").strip()
+    if not command:
+        return None, ".agents/project_check ist leer"
+
+    commands = [
+        "python3 scripts/workflow_check.py",
+        "python3 scripts/doc_drift_check.py",
+        command,
+    ]
+    evidence = []
+    for check_command in commands:
+        result = subprocess.run(check_command, shell=True, cwd=repo)
+        codex.record_command(repo, check_command, result.returncode)
+        evidence.append({"command": check_command, "exit_code": result.returncode})
+        if result.returncode != 0:
+            return None, f"lokaler Check fehlgeschlagen: {check_command}"
+    return evidence, None
+
+
+def accept_after_limit(repo, review_name, reason):
+    """P2/P3-Fixes nach Runde zwei lokal, sichtbar und codegebunden abschliessen.
+
+    Das ist kein Ersatz fuer einen normalen Review. Es ist der begrenzte
+    Ausweg aus dem sonst unloesbaren Widerspruch: Runde zwei findet einen
+    mittleren/kleinen Fund, der Fix aendert den Fingerabdruck, aber Runde drei
+    ist aus Kostenschutz verboten. P0/P1 bleiben hier bewusst gesperrt.
+    """
+    clean_reason = (reason or "").strip()
+    if not clean_reason:
+        print("FEHLER: --reason darf nicht leer sein.", file=sys.stderr)
+        return 2
+
+    store = review_store(repo)
+    try:
+        pending_path = pending_path_for(store, review_name)
+        pending = json.loads(pending_path.read_text(encoding="utf-8"))
+    except (ValueError, OSError, json.JSONDecodeError):
+        print("FEHLER: kein lesbarer pending Review vorhanden.", file=sys.stderr)
+        return 2
+
+    required = {
+        "base",
+        "head",
+        "fingerprint",
+        "file",
+        "review_sha256",
+        "review_round",
+        "review_budget_key",
+        "review_budget_series",
+    }
+    if not isinstance(pending, dict) or not required.issubset(pending):
+        print("FEHLER: pending Review ist fuer lokalen Abschluss unvollstaendig.", file=sys.stderr)
+        return 2
+    if pending["file"] != review_name:
+        print("FEHLER: Review-Dateiname ist ungueltig.", file=sys.stderr)
+        return 2
+
+    review_file = store / review_name
+    try:
+        review_text = review_file.read_text(encoding="utf-8")
+        current_sha = sha256_file(review_file)
+    except OSError:
+        print("FEHLER: Review-Text fehlt.", file=sys.stderr)
+        return 2
+    if current_sha != pending["review_sha256"]:
+        print("FEHLER: Review-Text wurde seit dem Lauf veraendert.", file=sys.stderr)
+        return 2
+
+    try:
+        state_path, _ = budget_paths(store, pending["review_budget_key"])
+        budget = read_budget_state(state_path)
+    except ReviewBudgetError as exc:
+        print(f"FEHLER: Review-Budget nicht verlaesslich: {exc}", file=sys.stderr)
+        return 2
+    rounds = budget.get("rounds", []) if budget else []
+    if (
+        not budget
+        or budget.get("status") != "active"
+        or budget.get("series_id") != pending["review_budget_series"]
+        or pending["review_round"] != REVIEW_ROUND_LIMIT
+        or len(rounds) != REVIEW_ROUND_LIMIT
+        or budget.get("round_limit") != REVIEW_ROUND_LIMIT
+    ):
+        print(
+            "FEHLER: lokaler Abschluss ist nur nach exakt zwei normalen Runden "
+            "derselben offenen Serie erlaubt.",
+            file=sys.stderr,
+        )
+        return 2
+    if any(round_record.get("override") for round_record in rounds):
+        print("FEHLER: lokaler Abschluss gilt nicht fuer Budget-Overrides.", file=sys.stderr)
+        return 2
+
+    priorities = final_finding_priorities(review_text)
+    if not priorities:
+        print(
+            "FEHLER: kein eindeutiger P2/P3-Fund im letzten Review-Block. "
+            "Unveraenderten Review normal annehmen.",
+            file=sys.stderr,
+        )
+        return 2
+    if any(priority < 2 for priority in priorities):
+        print("FEHLER: P0/P1 darf nicht lokal nach dem Limit geschlossen werden.", file=sys.stderr)
+        return 2
+
+    current = reviewed_state(repo, pending["base"])
+    if not all(current):
+        print("FEHLER: finaler Code-Stand ist nicht ermittelbar.", file=sys.stderr)
+        return 2
+    if current == (pending["head"], pending["fingerprint"]):
+        print("FEHLER: Code ist unveraendert; nutze die normale --accept-Annahme.", file=sys.stderr)
+        return 2
+
+    evidence, error = local_closure_checks(repo)
+    if error:
+        print(f"FEHLER: {error}", file=sys.stderr)
+        return 2
+
+    accepted_at = codex.now()
+    record = {
+        **pending,
+        "status": "accepted",
+        "acceptance_mode": "local_after_review_limit",
+        "reviewed_at": pending.get("ts"),
+        "reviewed_head": pending["head"],
+        "reviewed_fingerprint": pending["fingerprint"],
+        "head": current[0],
+        "fingerprint": current[1],
+        "ts": accepted_at,
+        "accepted_at": accepted_at,
+        "acceptance_reason": clean_reason,
+        "review_findings": {"priorities": priorities, "max_severity": min(priorities)},
+        "local_verification": {"checked_at": accepted_at, "commands": evidence},
+        "final_model_reviewed": False,
+    }
+    write_json_atomic(store / "last_review.json", record)
+    append_record(store, record)
+    try:
+        close_review_budget(
+            store,
+            pending["review_budget_key"],
+            pending["review_budget_series"],
+            review_name,
+            accepted_at,
+        )
+    except ReviewBudgetError as exc:
+        print(f"WARNUNG: Review-Budget blieb offen: {exc}", file=sys.stderr)
+    with contextlib.suppress(OSError):
+        pending_path.unlink()
+    codex.record_command(repo, "tools/agent_review --accept-after-limit", 0)
+    print(f"Review-Serie lokal nach Runde {REVIEW_ROUND_LIMIT} geschlossen: {review_name}")
+    print("TRANSPARENT: Die finalen P2/P3-Fixes wurden lokal geprueft, nicht erneut vom Modell.")
+    return 0
+
+
 def accept_last_review(repo, reason):
     """Kompatibilitaetsweg: nur bei genau einem pending Review eindeutig."""
     store = review_store(repo)
@@ -733,6 +908,11 @@ def main():
         help="letzten pending Review nach der Triage fuer den aktuellen Stand annehmen",
     )
     ap.add_argument(
+        "--accept-after-limit",
+        metavar="REVIEW-DATEI",
+        help="P2/P3-Fixes nach der zweiten und letzten Runde lokal geprueft abschliessen",
+    )
+    ap.add_argument(
         "--override-budget",
         action="store_true",
         help="weitere Review-Runde nach dem harten Limit; nur nach Nutzerfreigabe",
@@ -759,22 +939,27 @@ def main():
         print(f"FEHLER: kein Git-Repo: {repo}", file=sys.stderr)
         return 2
 
-    if args.accept and args.accept_last:
-        print("FEHLER: --accept und --accept-last nicht kombinieren.", file=sys.stderr)
+    accept_modes = sum(
+        bool(value) for value in (args.accept, args.accept_last, args.accept_after_limit)
+    )
+    if accept_modes > 1:
+        print("FEHLER: Annahme-Modi nicht kombinieren.", file=sys.stderr)
         return 2
-    if args.accept or args.accept_last:
+    if args.accept or args.accept_last or args.accept_after_limit:
         if args.base or args.commit or args.uncommitted or args.prompt or args.override_budget:
             print("FEHLER: Annahme nicht mit Review-Scope kombinieren.", file=sys.stderr)
             return 2
         if args.accept:
             return accept_review(repo, args.accept, args.reason)
+        if args.accept_after_limit:
+            return accept_after_limit(repo, args.accept_after_limit, args.reason)
         return accept_last_review(repo, args.reason)
     if args.override_budget and not (args.reason or "").strip():
         print("FEHLER: --override-budget braucht --reason.", file=sys.stderr)
         return 2
     if args.reason and not args.override_budget:
         print(
-            "FEHLER: --reason braucht --accept, --accept-last oder --override-budget.",
+            "FEHLER: --reason braucht einen Annahme-Modus oder --override-budget.",
             file=sys.stderr,
         )
         return 2
@@ -915,6 +1100,40 @@ def main():
         codex.record_command(repo, "agent_review budget-blocked", 2)
         return 2
 
+    try:
+        shared_budget = codex.budget.reserve(repo, "review", detail=mode)
+    except codex.budget.ModelBudgetError as exc:
+        release_review_round(
+            reviews,
+            budget["key"],
+            budget["series_id"],
+            budget["reservation_id"],
+            "gemeinsames Modellbudget nicht nutzbar",
+        )
+        unmark_intent_to_add(repo, marked)
+        print(f"MODELLBUDGET: FEHLER - {exc}", file=sys.stderr)
+        print("Kein Zweitmodell gestartet.", file=sys.stderr)
+        codex.record_command(repo, "agent_review shared-budget-error", 2)
+        return 2
+    if not shared_budget["allowed"]:
+        release_review_round(
+            reviews,
+            budget["key"],
+            budget["series_id"],
+            budget["reservation_id"],
+            "gemeinsames Modellbudget erreicht",
+        )
+        unmark_intent_to_add(repo, marked)
+        print(
+            "MODELLBUDGET: LIMIT ERREICHT "
+            f"({shared_budget['total_used']}/{shared_budget['total_limit']} gesamt, "
+            f"Review {shared_budget['tool_used']}/{shared_budget['tool_limit']}).",
+            file=sys.stderr,
+        )
+        print("Kein Zweitmodell gestartet und kein Kontingent verbraucht.", file=sys.stderr)
+        codex.record_command(repo, "agent_review shared-budget-blocked", 2)
+        return 2
+
     print(
         f"Zweitmodell liest gegen: {repo.name} ({mode}) [codex: {args.model}, effort={args.effort}]"
     )
@@ -922,6 +1141,10 @@ def main():
         print(f"  Review-Budget: Runde {budget['round']} (ausdruecklich freigegeben)")
     else:
         print(f"  Review-Budget: Runde {budget['round']}/{budget['limit']}")
+    print(
+        f"  Gemeinsames Modellbudget: {shared_budget['total_used']}/"
+        f"{shared_budget['total_limit']} Starts"
+    )
     if marked:
         print(f"  + {len(marked)} ungetrackte Datei(en) in den Diff gehoben")
 
@@ -940,6 +1163,14 @@ def main():
                 )
             except ReviewBudgetError as exc:
                 print(f"WARNUNG: Review-Runde blieb reserviert: {exc}", file=sys.stderr)
+            try:
+                codex.budget.release(
+                    repo,
+                    shared_budget,
+                    "codex-Prozess konnte nicht gestartet werden",
+                )
+            except codex.budget.ModelBudgetError as exc:
+                print(f"WARNUNG: Modellstart blieb reserviert: {exc}", file=sys.stderr)
             raise
     finally:
         # Auch wenn der Lauf abstuerzt: die per `git add -N` gesetzten Markierungen
@@ -960,6 +1191,14 @@ def main():
             # Der Status bleibt im Zweifel restriktiv. Ein fehlgeschlagenes
             # Freigeben darf nie still eine zusaetzliche Runde erlauben.
             print(f"WARNUNG: Review-Runde blieb reserviert: {exc}", file=sys.stderr)
+        try:
+            codex.budget.release(
+                repo,
+                shared_budget,
+                f"codex-Lauf nicht gestartet: {failure}",
+            )
+        except codex.budget.ModelBudgetError as exc:
+            print(f"WARNUNG: Modellstart blieb reserviert: {exc}", file=sys.stderr)
         codex.report_failure(
             failure,
             "REVIEW",

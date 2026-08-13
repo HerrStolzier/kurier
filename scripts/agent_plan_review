@@ -139,6 +139,21 @@ def main():
         print("Kein Review vorzutaeuschen ist besser als ein erfundenes.", file=sys.stderr)
         return 2
 
+    try:
+        model_start = codex.budget.reserve(repo, "plan-review", detail=source)
+    except codex.budget.ModelBudgetError as exc:
+        print(f"MODELLBUDGET: FEHLER - {exc}", file=sys.stderr)
+        return 2
+    if not model_start["allowed"]:
+        print(
+            "MODELLBUDGET: LIMIT ERREICHT "
+            f"({model_start['total_used']}/{model_start['total_limit']} gesamt, "
+            f"Plan-Review {model_start['tool_used']}/{model_start['tool_limit']}).",
+            file=sys.stderr,
+        )
+        print("Kein Zweitmodell gestartet.", file=sys.stderr)
+        return 2
+
     context_block = f"\nZusaetzlicher Kontext:\n{args.context}\n" if args.context else ""
     prompt = PLAN_INSTRUCTIONS.format(plan=plan, context_block=context_block)
 
@@ -148,10 +163,16 @@ def main():
     # Der Reviewer liest den Plan UND das Repo, aendert aber nichts. Ein
     # Plan-Review, das nebenbei Code anfasst, waere kein Review.
     cmd = codex.read_only_cmd(backend_bin, args.model, args.effort, prompt)
-    output, returncode = codex.run(cmd, repo)
+    try:
+        output, returncode = codex.run(cmd, repo)
+    except OSError as exc:
+        codex.budget.release(repo, model_start, "codex-Prozess konnte nicht gestartet werden")
+        print(f"PLAN-REVIEW NICHT GELAUFEN: {exc}", file=sys.stderr)
+        return 2
 
     failure = codex.classify_failure(output, returncode)
     if failure:
+        codex.budget.release(repo, model_start, f"codex-Lauf nicht gestartet: {failure}")
         codex.report_failure(failure, "PLAN-REVIEW", output)
         codex.record_command(repo, "agent_plan_review", 2)
         return 2

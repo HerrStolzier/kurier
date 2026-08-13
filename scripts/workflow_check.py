@@ -42,6 +42,8 @@ REQUIRED_SCRIPTS = [
     # das ihn absichern soll, gar nicht startet. (Cross-Model-Review
     # 2026-08-05, P2.)
     "scripts/codex_backend.py",
+    "scripts/model_budget.py",
+    "scripts/agent_security",
 ]
 
 # Unausgefuellte Templates sind schlimmer als keine Doku: sie lesen sich wie Wahrheit.

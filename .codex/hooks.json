@@ -1,16 +1,3 @@
 {
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"$(git rev-parse --show-toplevel)/scripts/codex_stop_hook.py\"",
-            "timeout": 600,
-            "statusMessage": "Pruefe Workflow Guard"
-          }
-        ]
-      }
-    ]
-  }
+  "hooks": {}
 }

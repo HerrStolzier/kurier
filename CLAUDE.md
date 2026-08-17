@@ -9,7 +9,7 @@ PyPI: `pipx install kurier` | CLI: `kurier` | Internal package: `arkiv`
 - Externer Name ist `kurier` (PyPI, CLI), das interne Python-Package bleibt `arkiv`.
 - Nach Code-Änderungen immer laufen lassen: `ruff check src/` + `mypy src/arkiv/ --ignore-missing-imports` + `pytest tests/ -x -q`.
 - Bei Änderungen an `plugins/arkiv-webhook/` zusätzlich: `pytest --rootdir=plugins/arkiv-webhook --override-ini="testpaths=plugins/arkiv-webhook/tests" plugins/arkiv-webhook/tests/`.
-- Vor dem Fertigmelden nicht-trivialer Workflow- oder Code-Änderungen: `uv run python scripts/agent_finish.py`. Schlägt es fehl: Fehler beheben oder den verbleibenden Blocker klar benennen.
+- Vor dem Fertigmelden nicht-trivialer Workflow- oder Code-Änderungen die passenden lokalen Prüfungen ausführen.
 - `WORKFLOWS.md`, `CHECKS.md` und `KNOWN_ERRORS.md` aktuell halten, wenn sich Kommandos, Dependencies, Outputs oder bekannte Fehlerbilder ändern.
 - Bei Änderungen an Klassifikation, Provider-Wiring oder Plugin-Hooks: mindestens einen echten Provider-Smoke-Pfad verifizieren statt nur gemockte Unit-Tests.
 - Bei Änderungen an Packaging, Install-Flow oder CLI-Entrypoints: frische editable- UND wheel-Install-Smokes, nicht nur der bestehenden In-Place-Dev-Umgebung vertrauen.
@@ -179,7 +179,7 @@ pytest tests/ -x -q                          # Tests
 ```
 **mypy --strict ist aktiv** — alle Funktionen brauchen Return-Type-Annotations, generische Typen brauchen Parameter (`dict[str, object]` nicht `dict`), und `subprocess.run()` muss `text=True` haben wenn `.stdout` als `str` verwendet wird.
 
-Zusätzlich gelten die Stable Rules oben: Plugin-pytest bei `plugins/arkiv-webhook/`-Änderungen, `uv run python scripts/agent_finish.py` vor dem Fertigmelden.
+Zusätzlich gelten die Stable Rules oben, insbesondere der Plugin-pytest bei `plugins/arkiv-webhook/`-Änderungen.
 
 ## Testing
 
@@ -190,15 +190,9 @@ Zusätzlich gelten die Stable Rules oben: Plugin-pytest bei `plugins/arkiv-webho
 
 ## Abschluss
 
-Nicht-triviale Arbeit endet mit dem Standardabschluss:
-
-```bash
-python3 scripts/agent_finish.py --auto-claims
-```
-
-Der Stop-Hook erzwingt das. Schlaegt der Check fehl, ist die Arbeit nicht fertig.
-Die technischen Projektchecks stehen versioniert in `.agents/project_check` -
-nicht im Guard-Script. Aendert sich der Check, aendert sich diese Datei.
+Nicht-triviale Arbeit endet mit den fuer die Aenderung passenden lokalen
+Projektchecks. Eine weitere Modellpruefung erfolgt nur auf ausdruecklichen
+Nutzerwunsch.
 
 ## Belegpflicht
 
@@ -213,17 +207,3 @@ muss existieren. `scripts/doc_drift_check.py` erzwingt das bei jedem Abschluss.
 
 Pfad umbenannt oder geloescht? Doku mitziehen. Laufzeit-Artefakt (Build-Output,
 Log, Modell-ID)? Zeile nach `.agents/doc_paths_ignore`.
-
-## Gegenlesen lassen
-
-Ein Modell, das seinen eigenen Code reviewt, findet vor allem, was es ohnehin
-schon dachte. Deshalb an zwei Punkten ein ZWEITES Modell drueberschauen lassen:
-
-1. **Nach dem Plan**, bevor implementiert wird - Konvention, kein Gate.
-   Ein Skript kann das nicht erzwingen (es gibt kein Plan-Artefakt).
-2. **Vor dem Abschluss** - `tools/agent_review --uncommitted`.
-
-Liegt `.agents/review_required` im Repo, erzwingt `scripts/review_gate.py` Punkt 2:
-Der Abschluss blockiert, bis ein Review vorliegt, das den AKTUELLEN Stand abdeckt.
-Aendert sich der Code danach, wird das Review ungueltig - ein Review von gestern
-auf altem Code belegt nichts.
